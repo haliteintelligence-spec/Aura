@@ -4,8 +4,8 @@
   "description": "Track, discover and explore your personal fragrance collection.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#FFFDF8",
-  "theme_color": "#6B2D8D",
+  "background_color": "#FAF6F0",
+  "theme_color": "#450F2A",
   "orientation": "portrait",
   "icons": [
     {

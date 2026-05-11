@@ -70,7 +70,8 @@ export const OCCASIONS = [
   "Travel",
   "Beach / Pool",
   "Night Out",
-  "At-Home / Bedtime",
+  "At Home",
+  "Bedtime",
   "Special Occasion",
   "Weekend",
 ];

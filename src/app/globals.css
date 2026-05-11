@@ -1,38 +1,54 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Belleza&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap');
 
 :root {
-  --background: #FFFDF8;
-  --foreground: #1A0A1F;
-  --card: #FFFFFF;
-  --card-foreground: #1A0A1F;
-  --popover: #FFFFFF;
-  --popover-foreground: #1A0A1F;
-  --primary: #6B2D8D;
-  --primary-foreground: #FFFDF8;
-  --secondary: #F3E8FF;
-  --secondary-foreground: #4A1F6A;
-  --muted: #F5F0F8;
-  --muted-foreground: #7C6B8A;
-  --accent: #9B4DCA;
-  --accent-foreground: #FFFDF8;
+  /* ── Core semantic tokens ── */
+  --background: #FAF6F0;          /* Ivory */
+  --foreground: #1A0A12;          /* Ink */
+  --card: #F2EBE0;                /* Ivory 2 */
+  --card-foreground: #1A0A12;     /* Ink */
+  --popover: #FAF6F0;             /* Ivory */
+  --popover-foreground: #1A0A12;  /* Ink */
+  --primary: #450F2A;             /* Burgundy */
+  --primary-foreground: #FAF6F0;  /* Ivory */
+  --secondary: #F8F3EE;           /* Ivory 3 */
+  --secondary-foreground: #4A2A38; /* Muted plum */
+  --muted: #F8F3EE;               /* Ivory 3 */
+  --muted-foreground: #8B6575;    /* Dusty rose */
+  --accent: #C17A47;              /* Gold */
+  --accent-foreground: #FAF6F0;   /* Ivory */
   --destructive: #DC2626;
-  --destructive-foreground: #FFFFFF;
-  --border: #E8D5F0;
-  --input: #E8D5F0;
-  --ring: #6B2D8D;
+  --destructive-foreground: #FAF6F0;
+  --border: #E8DDD0;              /* Sand */
+  --input: #E8DDD0;               /* Sand */
+  --ring: #450F2A;                /* Burgundy */
   --radius: 0.75rem;
-  --plum-50: #FAF0FF;
-  --plum-100: #F3E8FF;
-  --plum-200: #E9D5FF;
-  --plum-300: #D8B4FE;
-  --plum-400: #C084FC;
-  --plum-500: #A855F7;
-  --plum-600: #9B4DCA;
-  --plum-700: #7E22CE;
-  --plum-800: #6B2D8D;
-  --plum-900: #4A1F6A;
-  --plum-950: #2D0F45;
+
+  /* ── Brand palette ── */
+  --burgundy: #450F2A;
+  --burgundy-dark: #2D0A1C;
+  --burgundy-light: #6B1E3F;
+  --ivory: #FAF6F0;
+  --ivory-2: #F2EBE0;
+  --ivory-3: #F8F3EE;
+  --sand: #E8DDD0;
+  --ink: #1A0A12;
+  --muted-plum: #4A2A38;
+  --dusty-rose: #8B6575;
+  --muted-pink: #C4B5BD;
+  --gold: #C17A47;
+
+  /* ── Plum scale remapped to brand (used throughout components) ── */
+  --plum-50: #FAF6F0;   /* Ivory */
+  --plum-100: #F2EBE0;  /* Ivory 2 */
+  --plum-200: #F8F3EE;  /* Ivory 3 */
+  --plum-300: #C4B5BD;  /* Muted pink */
+  --plum-400: #8B6575;  /* Dusty rose */
+  --plum-500: #4A2A38;  /* Muted plum */
+  --plum-600: #6B1E3F;  /* Burgundy light */
+  --plum-700: #6B1E3F;  /* Burgundy light */
+  --plum-800: #450F2A;  /* Burgundy */
+  --plum-900: #2D0A1C;  /* Burgundy dark */
+  --plum-950: #2D0A1C;  /* Burgundy dark */
 }
 
 @theme inline {
@@ -55,6 +71,22 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+
+  /* Brand colors as Tailwind utilities */
+  --color-burgundy: var(--burgundy);
+  --color-burgundy-dark: var(--burgundy-dark);
+  --color-burgundy-light: var(--burgundy-light);
+  --color-ivory: var(--ivory);
+  --color-ivory-2: var(--ivory-2);
+  --color-ivory-3: var(--ivory-3);
+  --color-sand: var(--sand);
+  --color-ink: var(--ink);
+  --color-muted-plum: var(--muted-plum);
+  --color-dusty-rose: var(--dusty-rose);
+  --color-muted-pink: var(--muted-pink);
+  --color-gold: var(--gold);
+
+  /* Plum scale (remapped to brand) */
   --color-plum-50: var(--plum-50);
   --color-plum-100: var(--plum-100);
   --color-plum-200: var(--plum-200);
@@ -66,6 +98,7 @@
   --color-plum-800: var(--plum-800);
   --color-plum-900: var(--plum-900);
   --color-plum-950: var(--plum-950);
+
   --font-display: 'Belleza', serif;
   --font-sans: 'DM Sans', sans-serif;
   --radius-sm: calc(var(--radius) - 4px);
@@ -105,11 +138,11 @@ h1, h2, h3 {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: var(--sand);
   border-radius: 999px;
 }
 
-/* Rating slider custom */
+/* Rating slider */
 .rating-slider [data-orientation="horizontal"] {
   height: 6px;
 }
