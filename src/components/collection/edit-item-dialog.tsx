@@ -31,6 +31,8 @@ export function EditItemDialog({ item, open, onClose, onSaved }: EditItemDialogP
   const [occasions, setOccasions] = useState<string[]>(item?.occasions ?? []);
   const [rating, setRating] = useState(item?.rating ?? 0);
   const [swap, setSwap] = useState(item?.available_for_swap ?? false);
+  const [fetchedPrices, setFetchedPrices] = useState<Record<string, { min: number; max: number }>>({});
+  const [fetchingPrices, setFetchingPrices] = useState(false);
 
   // Reset when item changes
   if (item && item.collection_type !== collection && !saving) {
@@ -45,21 +47,57 @@ export function EditItemDialog({ item, open, onClose, onSaved }: EditItemDialogP
 
   if (!item) return null;
 
-  // item is non-null beyond this point
   const itemId = item.id;
-
   const perfume = item.perfume;
   const levelFraction = levelToFraction(level);
+
+  async function fetchPricesForSizes(newSizes: string[]) {
+    if (!perfume || newSizes.length === 0) return;
+    setFetchingPrices(true);
+    try {
+      const res = await fetch("/api/perfume/price", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: perfume.name, brand: perfume.brand, sizes: newSizes }),
+      });
+      const data = await res.json();
+      const map: Record<string, { min: number; max: number }> = {};
+      for (const p of data.prices ?? []) {
+        map[p.size] = { min: p.price_min, max: p.price_max };
+      }
+      setFetchedPrices(map);
+    } finally {
+      setFetchingPrices(false);
+    }
+  }
+
+  function toggleSize(size: string) {
+    const next = sizes.includes(size) ? sizes.filter((s) => s !== size) : [...sizes, size];
+    setSizes(next);
+    fetchPricesForSizes(next);
+  }
 
   async function save() {
     setSaving(true);
     try {
       const supabase = createClient();
+
+      // Merge refreshed prices with existing ones; refreshed take priority
+      const existingPrices = item?.size_prices ?? [];
+      const mergedPrices = sizes.map((size) => {
+        if (fetchedPrices[size]) {
+          return { size, price_min: fetchedPrices[size].min, price_max: fetchedPrices[size].max, currency: "USD" };
+        }
+        const existing = existingPrices.find((p) => p.size === size);
+        return existing ?? { size, price_min: null, price_max: null, currency: "USD" };
+      });
+
       const { error } = await supabase
         .from("collection_items")
         .update({
           collection_type: collection,
           bottle_sizes: sizes,
+          size_prices: mergedPrices,
           estimated_level: level,
           seasons,
           occasions,
@@ -144,7 +182,7 @@ export function EditItemDialog({ item, open, onClose, onSaved }: EditItemDialogP
               {BOTTLE_SIZES.map((bs) => (
                 <button
                   key={bs.value}
-                  onClick={() => setSizes((prev) => prev.includes(bs.value) ? prev.filter((s) => s !== bs.value) : [...prev, bs.value])}
+                  onClick={() => toggleSize(bs.value)}
                   className={cn(
                     "px-2.5 py-1 rounded-lg text-xs border transition-colors",
                     sizes.includes(bs.value)
@@ -158,13 +196,24 @@ export function EditItemDialog({ item, open, onClose, onSaved }: EditItemDialogP
             </div>
 
             {/* Price display */}
-            {item.size_prices?.length > 0 && (
+            {fetchingPrices && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1 pt-1">
+                <Loader2 className="w-3 h-3 animate-spin" /> Refreshing prices…
+              </p>
+            )}
+            {!fetchingPrices && sizes.length > 0 && (
               <div className="space-y-0.5 pt-1">
-                {item.size_prices.filter((p) => sizes.includes(p.size)).map((p) => {
-                  const label = BOTTLE_SIZES.find((b) => b.value === p.size)?.label;
-                  return p.price_min && (
-                    <p key={p.size} className="text-xs text-muted-foreground">
-                      {label}: <span className="font-medium text-foreground">${p.price_min}–${p.price_max}</span>
+                {sizes.map((size) => {
+                  const label = BOTTLE_SIZES.find((b) => b.value === size)?.label;
+                  const refreshed = fetchedPrices[size];
+                  const existing = item.size_prices?.find((p) => p.size === size);
+                  const priceMin = refreshed?.min ?? existing?.price_min;
+                  const priceMax = refreshed?.max ?? existing?.price_max;
+                  if (!priceMin) return null;
+                  return (
+                    <p key={size} className="text-xs text-muted-foreground">
+                      {label}: <span className="font-medium text-foreground">${priceMin}–${priceMax}</span>
+                      {refreshed && <span className="text-primary ml-1">↻ updated</span>}
                     </p>
                   );
                 })}

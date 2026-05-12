@@ -7,9 +7,10 @@ import type { PerfumeSearchResult } from "@/lib/types";
 
 interface PhotoCaptureProps {
   onResult: (candidates: PerfumeSearchResult[]) => void;
+  onPhoto?: (file: File) => void;
 }
 
-export function PhotoCapture({ onResult }: PhotoCaptureProps) {
+export function PhotoCapture({ onResult, onPhoto }: PhotoCaptureProps) {
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -19,6 +20,7 @@ export function PhotoCapture({ onResult }: PhotoCaptureProps) {
     const url = URL.createObjectURL(file);
     setPreview(url);
     setLoading(true);
+    onPhoto?.(file);
 
     const formData = new FormData();
     formData.append("image", file);

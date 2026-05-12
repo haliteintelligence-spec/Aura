@@ -41,6 +41,7 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
   const [rating, setRating] = useState(0);
   const [loadingPrices, setLoadingPrices] = useState(false);
   const [prices, setPrices] = useState<Record<string, { min: number; max: number }>>({});
+  const [userPhotoFile, setUserPhotoFile] = useState<File | null>(null);
 
   const selected = candidates[candidateIdx];
 
@@ -61,12 +62,24 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
     }
   }
 
-  function selectSuggestion(p: PerfumeSearchResult) {
+  async function selectSuggestion(p: PerfumeSearchResult) {
     setCandidates([p]);
     setCandidateIdx(0);
     setSuggestions([]);
     setQuery(`${p.brand} ${p.name}`);
     setStep("confirm");
+    // Fetch bottle image from Fragrantica in background
+    if (!p.image_url) {
+      try {
+        const res = await fetch("/api/perfume/image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: p.name, brand: p.brand }),
+        });
+        const data = await res.json();
+        if (data.image_url) setCandidates([{ ...p, image_url: data.image_url }]);
+      } catch {}
+    }
   }
 
   function handlePhotoResult(result: PerfumeSearchResult[]) {
@@ -115,6 +128,20 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { toast.error("Please sign in to save to your collection"); return; }
 
+      // Upload user photo if present, otherwise use AI-provided image
+      let imageUrl = selected.image_url ?? null;
+      if (userPhotoFile) {
+        const ext = userPhotoFile.name.split(".").pop() ?? "jpg";
+        const path = `${user.id}/${Date.now()}.${ext}`;
+        const { data: uploadData } = await supabase.storage
+          .from("perfume-photos")
+          .upload(path, userPhotoFile, { contentType: userPhotoFile.type, upsert: true });
+        if (uploadData) {
+          const { data: { publicUrl } } = supabase.storage.from("perfume-photos").getPublicUrl(uploadData.path);
+          imageUrl = publicUrl;
+        }
+      }
+
       // Upsert perfume
       const { data: perfumeData, error: perfumeErr } = await supabase
         .from("perfumes")
@@ -128,7 +155,7 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
           base_notes: selected.base_notes || [],
           fragrance_family: selected.fragrance_family || [],
           gender: selected.gender,
-          image_url: selected.image_url,
+          image_url: imageUrl,
         }, { onConflict: "name,brand", ignoreDuplicates: false })
         .select()
         .single();
@@ -212,7 +239,7 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
         </div>
 
         {/* Photo */}
-        <PhotoCapture onResult={handlePhotoResult} />
+        <PhotoCapture onResult={handlePhotoResult} onPhoto={setUserPhotoFile} />
       </div>
     );
   }
