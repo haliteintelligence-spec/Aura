@@ -11,9 +11,9 @@ import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { SEASONS, OCCASIONS, MOODS, cn } from "@/lib/utils";
-import type { CollectionItem } from "@/lib/types";
+import type { CollectionItem, LayerCombo } from "@/lib/types";
 import { toast } from "sonner";
-import { Loader2, Layers, Sparkles, Droplets, Save, Check } from "lucide-react";
+import { Loader2, Layers, Sparkles, Droplets, Save, Check, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -37,6 +37,8 @@ export default function LayeringPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ComboResult | null>(null);
   const [saved, setSaved] = useState(false);
+  const [savedCombos, setSavedCombos] = useState<LayerCombo[]>([]);
+  const [expandedCombo, setExpandedCombo] = useState<string | null>(null);
 
   // Generate mode params
   const [genOccasion, setGenOccasion] = useState<string[]>([]);
@@ -55,7 +57,29 @@ export default function LayeringPage() {
       .eq("user_id", user.id)
       .eq("collection_type", "closet")
       .then(({ data }) => setClosetItems((data as CollectionItem[]) ?? []));
+    loadSavedCombos();
   }, [user]);
+
+  async function loadSavedCombos() {
+    if (!user) return;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("layer_combos")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("saved", true)
+      .order("created_at", { ascending: false });
+    setSavedCombos((data as LayerCombo[]) ?? []);
+  }
+
+  async function deleteCombo(id: string) {
+    const supabase = createClient();
+    const { error } = await supabase.from("layer_combos").delete().eq("id", id);
+    if (!error) {
+      setSavedCombos((prev) => prev.filter((c) => c.id !== id));
+      toast.success("Combo deleted");
+    }
+  }
 
   function toggleItem(id: string) {
     setSelectedIds((prev) =>
@@ -104,10 +128,20 @@ export default function LayeringPage() {
   async function saveCombo() {
     if (!user || !result) return;
     const supabase = createClient();
+
+    // In generate mode, resolve AI-picked perfume names back to collection item IDs
+    const itemIds = mode === "generate" && result.selected_perfumes?.length
+      ? closetItems
+          .filter((item) => result.selected_perfumes!.some(
+            (name) => item.perfume?.name?.toLowerCase() === name.toLowerCase()
+          ))
+          .map((item) => item.id)
+      : selectedIds;
+
     const { error } = await supabase.from("layer_combos").insert({
       user_id: user.id,
       name: result.name_suggestion,
-      collection_item_ids: selectedIds,
+      collection_item_ids: itemIds,
       occasion: genOccasion,
       season: genSeason,
       mood: genMood,
@@ -116,8 +150,14 @@ export default function LayeringPage() {
       combined_profile: result.combined_profile,
       saved: true,
     });
-    if (!error) { setSaved(true); toast.success("Combo saved!"); checkAndAwardBadges(user.id); }
-    else toast.error("Failed to save");
+    if (!error) {
+      setSaved(true);
+      toast.success("Combo saved!");
+      checkAndAwardBadges(user.id);
+      loadSavedCombos();
+    } else {
+      toast.error("Failed to save");
+    }
   }
 
   if (!user) {
@@ -234,6 +274,59 @@ export default function LayeringPage() {
               Generate Combo
             </Button>
           </>
+        )}
+
+        {/* Saved combos */}
+        {savedCombos.length > 0 && (
+          <section className="space-y-3">
+            <h2 className="font-display text-base">Saved Combos</h2>
+            <div className="space-y-2">
+              {savedCombos.map((combo) => {
+                const isExpanded = expandedCombo === combo.id;
+                const perfumeNames = combo.collection_item_ids.length > 0
+                  ? closetItems
+                      .filter((i) => combo.collection_item_ids.includes(i.id))
+                      .map((i) => i.perfume?.name)
+                      .filter(Boolean)
+                      .join(" + ")
+                  : null;
+                return (
+                  <div key={combo.id} className="bg-card border border-border rounded-2xl overflow-hidden">
+                    <button
+                      className="w-full flex items-center justify-between px-4 py-3 text-left"
+                      onClick={() => setExpandedCombo(isExpanded ? null : combo.id)}
+                    >
+                      <div className="min-w-0">
+                        <p className="font-display text-sm font-medium truncate">{combo.name ?? "Unnamed combo"}</p>
+                        {perfumeNames && <p className="text-xs text-muted-foreground truncate">{perfumeNames}</p>}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); deleteCombo(combo.id); }}
+                          className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                      </div>
+                    </button>
+                    {isExpanded && (
+                      <div className="px-4 pb-4 space-y-2 border-t border-border pt-3">
+                        {combo.combined_profile && (
+                          <p className="text-sm text-muted-foreground leading-relaxed">{combo.combined_profile}</p>
+                        )}
+                        <div className="flex flex-wrap gap-1">
+                          {combo.occasion?.map((o) => <span key={o} className="text-[10px] bg-muted px-2 py-0.5 rounded-full">{o}</span>)}
+                          {combo.season?.map((s) => <span key={s} className="text-[10px] bg-muted px-2 py-0.5 rounded-full">{s}</span>)}
+                          {combo.mood?.map((m) => <span key={m} className="text-[10px] bg-muted px-2 py-0.5 rounded-full">{m}</span>)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         )}
 
         {/* Result */}
