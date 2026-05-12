@@ -1,14 +1,14 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Search, Archive, BookOpen, User, Layers } from "lucide-react";
+import { Home, Search, Archive, Trophy, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { href: "/", icon: Home, label: "Home" },
   { href: "/discover", icon: Search, label: "Discover" },
   { href: "/closet", icon: Archive, label: "Closet" },
-  { href: "/scent-log", icon: BookOpen, label: "Log" },
+  { href: "/milestones", icon: Trophy, label: "Milestones" },
   { href: "/profile", icon: User, label: "Profile" },
 ];
 

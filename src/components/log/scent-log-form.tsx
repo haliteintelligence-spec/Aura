@@ -6,6 +6,7 @@ import { Slider } from "@/components/ui/slider";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
+import { checkAndAwardBadges } from "@/lib/badges";
 import { MOODS, EVENT_TYPES, DURATION_RANGES } from "@/lib/utils";
 import type { CollectionItem } from "@/lib/types";
 import { toast } from "sonner";
@@ -63,6 +64,7 @@ export function ScentLogForm({ onSaved }: ScentLogFormProps) {
 
       if (error) throw error;
       toast.success("Scent logged!");
+      checkAndAwardBadges(user.id);
       setDone(true);
       onSaved?.();
     } catch {

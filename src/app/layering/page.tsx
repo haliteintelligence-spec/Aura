@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
+import { checkAndAwardBadges } from "@/lib/badges";
 import { SEASONS, OCCASIONS, MOODS, cn } from "@/lib/utils";
 import type { CollectionItem } from "@/lib/types";
 import { toast } from "sonner";
@@ -115,7 +116,7 @@ export default function LayeringPage() {
       combined_profile: result.combined_profile,
       saved: true,
     });
-    if (!error) { setSaved(true); toast.success("Combo saved!"); }
+    if (!error) { setSaved(true); toast.success("Combo saved!"); checkAndAwardBadges(user.id); }
     else toast.error("Failed to save");
   }
 

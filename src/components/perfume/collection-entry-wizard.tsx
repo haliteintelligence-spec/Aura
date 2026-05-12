@@ -13,6 +13,7 @@ import { CheckCircle2, ChevronLeft, ChevronRight, Loader2, RefreshCw, Droplets }
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
+import { checkAndAwardBadges } from "@/lib/badges";
 import { useRouter } from "next/navigation";
 
 type Step = "find" | "confirm" | "details" | "done";
@@ -157,6 +158,7 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
       if (itemErr) throw itemErr;
 
       toast.success(`Added to your ${COLLECTION_TYPES.find((c) => c.value === collection)?.label}!`);
+      checkAndAwardBadges(user.id);
       setStep("done");
       setTimeout(() => router.push(`/${collection === "owned_before" ? "owned-before" : collection}`), 1200);
     } catch (err) {
