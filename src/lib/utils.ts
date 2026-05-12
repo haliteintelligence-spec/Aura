@@ -116,3 +116,9 @@ export const COLLECTION_TYPES = [
 ] as const;
 
 export type CollectionType = "closet" | "wishlist" | "owned_before";
+
+export function proxyImageUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (url.includes("supabase.co") || url.startsWith("/")) return url;
+  return `/api/image-proxy?url=${encodeURIComponent(url)}`;
+}

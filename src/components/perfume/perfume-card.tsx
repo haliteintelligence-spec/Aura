@@ -2,7 +2,7 @@
 import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { cn, levelToFraction, BOTTLE_SIZES } from "@/lib/utils";
+import { cn, levelToFraction, BOTTLE_SIZES, proxyImageUrl } from "@/lib/utils";
 import type { CollectionItem } from "@/lib/types";
 import { Star, ArrowLeftRight, Droplets } from "lucide-react";
 
@@ -34,9 +34,9 @@ export function PerfumeCard({ item, onClick, className }: PerfumeCardProps) {
     >
       {/* Image */}
       <div className="relative w-full aspect-square bg-plum-50 overflow-hidden">
-        {perfume.image_url ? (
+        {proxyImageUrl(perfume.image_url) ? (
           <Image
-            src={perfume.image_url}
+            src={proxyImageUrl(perfume.image_url)!}
             alt={perfume.name}
             fill
             className="object-contain p-4"

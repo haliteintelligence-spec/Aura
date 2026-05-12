@@ -7,7 +7,7 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
-import { cn, BOTTLE_SIZES, SEASONS, OCCASIONS, PRODUCT_LEVELS, COLLECTION_TYPES, levelToFraction, formatPrice } from "@/lib/utils";
+import { cn, BOTTLE_SIZES, SEASONS, OCCASIONS, PRODUCT_LEVELS, COLLECTION_TYPES, levelToFraction, formatPrice, proxyImageUrl } from "@/lib/utils";
 import type { CollectionItem } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
@@ -140,8 +140,8 @@ export function EditItemDialog({ item, open, onClose, onSaved }: EditItemDialogP
         {/* Perfume header */}
         <div className="flex gap-3 p-4 border-b border-border bg-plum-50">
           <div className="w-16 h-16 rounded-xl bg-white border border-border flex items-center justify-center shrink-0 overflow-hidden">
-            {perfume?.image_url ? (
-              <Image src={perfume.image_url} alt={perfume.name} width={64} height={64} className="object-contain" unoptimized />
+            {proxyImageUrl(perfume?.image_url) ? (
+              <Image src={proxyImageUrl(perfume?.image_url)!} alt={perfume?.name ?? ""} width={64} height={64} className="object-contain" unoptimized />
             ) : (
               <Droplets className="w-8 h-8 text-plum-300" />
             )}

@@ -7,7 +7,7 @@ import { Slider } from "@/components/ui/slider";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { PhotoCapture } from "./photo-capture";
-import { cn, BOTTLE_SIZES, SEASONS, OCCASIONS, PRODUCT_LEVELS, COLLECTION_TYPES } from "@/lib/utils";
+import { cn, BOTTLE_SIZES, SEASONS, OCCASIONS, PRODUCT_LEVELS, COLLECTION_TYPES, proxyImageUrl } from "@/lib/utils";
 import type { PerfumeSearchResult } from "@/lib/types";
 import { CheckCircle2, ChevronLeft, ChevronRight, Loader2, RefreshCw, Droplets } from "lucide-react";
 import Image from "next/image";
@@ -256,8 +256,8 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
 
         <div className="bg-card border border-border rounded-2xl overflow-hidden">
           <div className="aspect-square max-h-56 bg-plum-50 flex items-center justify-center">
-            {selected.image_url ? (
-              <Image src={selected.image_url} alt={selected.name} width={200} height={200} className="object-contain" unoptimized />
+            {proxyImageUrl(selected.image_url) ? (
+              <Image src={proxyImageUrl(selected.image_url)!} alt={selected.name} width={200} height={200} className="object-contain" unoptimized />
             ) : (
               <Droplets className="w-16 h-16 text-plum-300" />
             )}
