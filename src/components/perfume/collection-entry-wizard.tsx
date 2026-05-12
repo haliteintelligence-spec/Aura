@@ -160,8 +160,8 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
       setStep("done");
       setTimeout(() => router.push(`/${collection === "owned_before" ? "owned-before" : collection}`), 1200);
     } catch (err) {
-      toast.error("Failed to save. Please try again.");
-      console.error(err);
+      const msg = err instanceof Error ? err.message : JSON.stringify(err);
+      toast.error(`Failed to save: ${msg}`);
     } finally {
       setSaving(false);
     }
