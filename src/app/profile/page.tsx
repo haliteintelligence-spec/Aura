@@ -9,11 +9,11 @@ import { Separator } from "@/components/ui/separator";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { levelToFraction, formatPrice, COLLECTION_TYPES, FRAGRANCE_FAMILIES } from "@/lib/utils";
-import type { CollectionItem, UserBadge } from "@/lib/types";
+import type { CollectionItem } from "@/lib/types";
 import { toast } from "sonner";
 import {
   User, Edit2, Check, X, Loader2, AlertTriangle,
-  TrendingUp, Award, LogOut, Droplets, ChevronRight
+  TrendingUp, LogOut, Droplets, ChevronRight
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
@@ -26,19 +26,14 @@ export default function ProfilePage() {
   const [editingName, setEditingName] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [items, setItems] = useState<CollectionItem[]>([]);
-  const [badges, setBadges] = useState<UserBadge[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
     setDisplayName(user.user_metadata?.display_name ?? "");
     const supabase = createClient();
-    Promise.all([
-      supabase.from("collection_items").select("*, perfume:perfumes(*)").eq("user_id", user.id),
-      supabase.from("user_badges").select("*, badge:badges(*)").eq("user_id", user.id),
-    ]).then(([{ data: itemData }, { data: badgeData }]) => {
-      setItems((itemData as CollectionItem[]) ?? []);
-      setBadges((badgeData as UserBadge[]) ?? []);
+    supabase.from("collection_items").select("*, perfume:perfumes(*)").eq("user_id", user.id).then(({ data }) => {
+      setItems((data as CollectionItem[]) ?? []);
       setDataLoading(false);
     });
   }, [user]);
@@ -213,27 +208,6 @@ export default function ProfilePage() {
                   </div>
                 );
               })}
-            </div>
-          </section>
-        )}
-
-        {/* Badges */}
-        {badges.length > 0 && (
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Award className="w-4 h-4 text-primary" />
-              <h2 className="font-display text-base">Achievements</h2>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {badges.map((ub) => (
-                <div key={ub.badge_id} className="bg-card border border-border rounded-xl px-3 py-2 flex items-center gap-2">
-                  <span className="text-lg">{ub.badge?.icon}</span>
-                  <div>
-                    <p className="text-xs font-medium">{ub.badge?.name}</p>
-                    <p className="text-[10px] text-muted-foreground">{ub.badge?.description}</p>
-                  </div>
-                </div>
-              ))}
             </div>
           </section>
         )}
