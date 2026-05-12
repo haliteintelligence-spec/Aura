@@ -9,11 +9,11 @@ import { Separator } from "@/components/ui/separator";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { levelToFraction, formatPrice, COLLECTION_TYPES, FRAGRANCE_FAMILIES } from "@/lib/utils";
-import type { CollectionItem } from "@/lib/types";
+import type { CollectionItem, LayerCombo } from "@/lib/types";
 import { toast } from "sonner";
 import {
   User, Edit2, Check, X, Loader2, AlertTriangle,
-  TrendingUp, LogOut, Droplets, ChevronRight
+  TrendingUp, LogOut, Droplets, ChevronRight, Layers
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
@@ -26,14 +26,19 @@ export default function ProfilePage() {
   const [editingName, setEditingName] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [items, setItems] = useState<CollectionItem[]>([]);
+  const [savedCombos, setSavedCombos] = useState<LayerCombo[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
     setDisplayName(user.user_metadata?.display_name ?? "");
     const supabase = createClient();
-    supabase.from("collection_items").select("*, perfume:perfumes(*)").eq("user_id", user.id).then(({ data }) => {
-      setItems((data as CollectionItem[]) ?? []);
+    Promise.all([
+      supabase.from("collection_items").select("*, perfume:perfumes(*)").eq("user_id", user.id),
+      supabase.from("layer_combos").select("*").eq("user_id", user.id).eq("saved", true).order("created_at", { ascending: false }),
+    ]).then(([{ data: itemData }, { data: comboData }]) => {
+      setItems((itemData as CollectionItem[]) ?? []);
+      setSavedCombos((comboData as LayerCombo[]) ?? []);
       setDataLoading(false);
     });
   }, [user]);
@@ -212,11 +217,43 @@ export default function ProfilePage() {
           </section>
         )}
 
+        {/* Saved Combos */}
+        {savedCombos.length > 0 && (
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-primary" />
+                <h2 className="font-display text-base">Saved Combos</h2>
+              </div>
+              <Link href="/layering" className="text-xs text-primary">See all</Link>
+            </div>
+            <div className="space-y-2">
+              {savedCombos.slice(0, 5).map((combo) => (
+                <Link key={combo.id} href="/layering">
+                  <div className="bg-card border border-border rounded-xl p-3.5 space-y-1 hover:border-primary/30 transition-colors">
+                    <p className="text-sm font-medium">{combo.name ?? "Unnamed combo"}</p>
+                    {combo.combined_profile && (
+                      <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{combo.combined_profile}</p>
+                    )}
+                    <div className="flex flex-wrap gap-1 pt-0.5">
+                      {combo.occasion?.slice(0, 2).map((o) => (
+                        <span key={o} className="text-[10px] bg-muted px-2 py-0.5 rounded-full">{o}</span>
+                      ))}
+                      {combo.season?.slice(0, 1).map((s) => (
+                        <span key={s} className="text-[10px] bg-muted px-2 py-0.5 rounded-full">{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Links */}
         <section className="space-y-2">
           {[
             { href: "/insights", label: "View Insights" },
-            { href: "/layering", label: "Layering Combinator" },
             { href: "/swap", label: "Swap Marketplace" },
           ].map((link) => (
             <Link key={link.href} href={link.href}>
