@@ -68,18 +68,23 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
     setSuggestions([]);
     setQuery(`${p.brand} ${p.name}`);
     setStep("confirm");
-    // Fetch bottle image from Fragrantica in background
-    if (!p.image_url) {
-      try {
-        const res = await fetch("/api/perfume/image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: p.name, brand: p.brand }),
-        });
-        const data = await res.json();
-        if (data.image_url) setCandidates([{ ...p, image_url: data.image_url }]);
-      } catch {}
-    }
+    // Enrich with Fragrantica photo + notes in background
+    try {
+      const res = await fetch("/api/perfume/details", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: p.name, brand: p.brand }),
+      });
+      const data = await res.json();
+      const enriched = { ...p };
+      if (data.image_url) enriched.image_url = data.image_url;
+      if (data.top_notes?.length) enriched.top_notes = data.top_notes;
+      if (data.heart_notes?.length) enriched.heart_notes = data.heart_notes;
+      if (data.base_notes?.length) enriched.base_notes = data.base_notes;
+      if (data.description) enriched.description = data.description;
+      setCandidates([enriched]);
+    } catch {}
+
   }
 
   function handlePhotoResult(result: PerfumeSearchResult[]) {

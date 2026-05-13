@@ -11,10 +11,10 @@ import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { SEASONS, OCCASIONS, MOODS, cn } from "@/lib/utils";
+import { PerfumeSelect } from "@/components/ui/perfume-select";
 import type { CollectionItem, LayerCombo } from "@/lib/types";
 import { toast } from "sonner";
-import { Loader2, Layers, Sparkles, Droplets, Save, Check, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
-import Image from "next/image";
+import { Loader2, Layers, Sparkles, Save, Check, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import Link from "next/link";
 
 interface ComboResult {
@@ -81,12 +81,6 @@ export default function LayeringPage() {
     }
   }
 
-  function toggleItem(id: string) {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
-    );
-  }
-
   async function analyse() {
     const perfumesToSend = mode === "manual"
       ? closetItems.filter((i) => selectedIds.includes(i.id)).map((i) => i.perfume)
@@ -138,10 +132,16 @@ export default function LayeringPage() {
           .map((item) => item.id)
       : selectedIds;
 
+    // Resolve perfume names from item IDs (for display even if items are later removed)
+    const perfumeNames = result.selected_perfumes?.length
+      ? result.selected_perfumes
+      : closetItems.filter((i) => itemIds.includes(i.id)).map((i) => i.perfume?.name).filter(Boolean) as string[];
+
     const { error } = await supabase.from("layer_combos").insert({
       user_id: user.id,
       name: result.name_suggestion,
       collection_item_ids: itemIds,
+      perfume_names: perfumeNames,
       occasion: genOccasion,
       season: genSeason,
       mood: genMood,
@@ -202,34 +202,15 @@ export default function LayeringPage() {
           <>
             <div className="space-y-2">
               <label className="text-sm font-semibold">Select fragrances to layer</label>
-              <div className="space-y-2">
-                {closetItems.map((item) => {
-                  const isSelected = selectedIds.includes(item.id);
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => toggleItem(item.id)}
-                      className={cn(
-                        "w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all",
-                        isSelected ? "border-primary bg-primary/5" : "border-border bg-card hover:border-primary/40"
-                      )}
-                    >
-                      <div className="w-10 h-10 rounded-lg bg-plum-50 flex items-center justify-center shrink-0 overflow-hidden">
-                        {item.perfume?.image_url ? (
-                          <Image src={item.perfume.image_url} alt="" width={40} height={40} className="object-contain" unoptimized />
-                        ) : (
-                          <Droplets className="w-5 h-5 text-plum-300" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate">{item.perfume?.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{item.perfume?.brand}</p>
-                      </div>
-                      {isSelected && <Check className="w-4 h-4 text-primary shrink-0" />}
-                    </button>
-                  );
-                })}
-              </div>
+              <PerfumeSelect
+                items={closetItems}
+                value={selectedIds}
+                onChange={setSelectedIds}
+                placeholder="Search your closet…"
+              />
+              {selectedIds.length > 0 && (
+                <p className="text-xs text-muted-foreground">{selectedIds.length} selected — need at least 2</p>
+              )}
             </div>
             <Button className="w-full h-11 gap-2" onClick={analyse} disabled={loading || selectedIds.length < 2}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
@@ -283,13 +264,11 @@ export default function LayeringPage() {
             <div className="space-y-2">
               {savedCombos.map((combo) => {
                 const isExpanded = expandedCombo === combo.id;
-                const perfumeNames = combo.collection_item_ids.length > 0
-                  ? closetItems
-                      .filter((i) => combo.collection_item_ids.includes(i.id))
-                      .map((i) => i.perfume?.name)
-                      .filter(Boolean)
-                      .join(" + ")
-                  : null;
+                const resolvedNames = closetItems
+                  .filter((i) => combo.collection_item_ids.includes(i.id))
+                  .map((i) => i.perfume?.name)
+                  .filter(Boolean) as string[];
+                const perfumeNamesStr = (resolvedNames.length > 0 ? resolvedNames : (combo as LayerCombo & { perfume_names?: string[] }).perfume_names ?? []).join(" + ") || null;
                 return (
                   <div key={combo.id} className="bg-card border border-border rounded-2xl overflow-hidden">
                     <button
@@ -298,7 +277,7 @@ export default function LayeringPage() {
                     >
                       <div className="min-w-0">
                         <p className="font-display text-sm font-medium truncate">{combo.name ?? "Unnamed combo"}</p>
-                        {perfumeNames && <p className="text-xs text-muted-foreground truncate">{perfumeNames}</p>}
+                        {perfumeNamesStr && <p className="text-xs text-muted-foreground truncate">{perfumeNamesStr}</p>}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <button

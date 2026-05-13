@@ -32,6 +32,7 @@ export default function HomePage() {
   const [recommendations, setRecommendations] = useState<Rec[]>([]);
   const [loadingRecs, setLoadingRecs] = useState(false);
   const [closetCount, setClosetCount] = useState(0);
+  const [seasonalData, setSeasonalData] = useState<Record<string, { name: string; count: number }[]>>({});
 
   // Add-to-collection sheet state
   const [selectedRec, setSelectedRec] = useState<Rec | null>(null);
@@ -64,6 +65,48 @@ export default function HomePage() {
       .eq("user_id", user.id)
       .eq("collection_type", "closet")
       .then(({ count }) => setClosetCount(count ?? 0));
+
+    // Seasonal usage patterns
+    supabase
+      .from("scent_logs")
+      .select("date, collection_item_ids")
+      .eq("user_id", user.id)
+      .then(async ({ data: logs }) => {
+        if (!logs?.length) return;
+        const allIds = [...new Set(logs.flatMap((l) => l.collection_item_ids as string[]))];
+        if (!allIds.length) return;
+        const { data: collItems } = await supabase
+          .from("collection_items")
+          .select("id, perfume:perfumes(name)")
+          .in("id", allIds);
+        const idToName = Object.fromEntries(
+          (collItems ?? []).map((i) => [i.id, (i.perfume as unknown as { name: string } | null)?.name ?? ""])
+        );
+        const getSeason = (d: string) => {
+          const m = new Date(d).getMonth() + 1;
+          if (m >= 3 && m <= 5) return "Spring";
+          if (m >= 6 && m <= 8) return "Summer";
+          if (m >= 9 && m <= 11) return "Autumn";
+          return "Winter";
+        };
+        const counts: Record<string, Record<string, number>> = { Spring: {}, Summer: {}, Autumn: {}, Winter: {} };
+        for (const log of logs) {
+          const season = getSeason(log.date as string);
+          for (const id of (log.collection_item_ids as string[])) {
+            const name = idToName[id];
+            if (name) counts[season][name] = (counts[season][name] ?? 0) + 1;
+          }
+        }
+        const result: Record<string, { name: string; count: number }[]> = {};
+        for (const [season, perfumeCounts] of Object.entries(counts)) {
+          const sorted = Object.entries(perfumeCounts)
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, 3)
+            .map(([name, count]) => ({ name, count }));
+          if (sorted.length) result[season] = sorted;
+        }
+        setSeasonalData(result);
+      });
   }, [user]);
 
   useEffect(() => {
@@ -289,6 +332,31 @@ export default function HomePage() {
                 </Link>
               ))}
             </div>
+
+            {/* Seasonal patterns */}
+            {Object.keys(seasonalData).length > 0 && (
+              <div className="px-4 pb-6">
+                <h2 className="font-display text-lg mb-3">By Season</h2>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["Spring", "Summer", "Autumn", "Winter"] as const).filter((s) => seasonalData[s]).map((season) => {
+                    const emoji = { Spring: "🌸", Summer: "☀️", Autumn: "🍂", Winter: "❄️" }[season];
+                    return (
+                      <div key={season} className="bg-card border border-border rounded-2xl p-3 space-y-2">
+                        <p className="text-xs font-semibold">{emoji} {season}</p>
+                        <div className="space-y-1">
+                          {seasonalData[season].map(({ name, count }) => (
+                            <div key={name} className="flex items-center justify-between gap-1">
+                              <p className="text-[11px] text-muted-foreground truncate flex-1">{name}</p>
+                              <span className="text-[10px] text-primary font-medium shrink-0">{count}×</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Recommendations */}
             {(recommendations.length > 0 || loadingRecs) && (

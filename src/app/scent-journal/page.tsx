@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { MOODS, EVENT_TYPES, DURATION_RANGES, proxyImageUrl, cn } from "@/lib/utils";
+import { PerfumeSelect } from "@/components/ui/perfume-select";
 import type { ScentLog, CollectionItem } from "@/lib/types";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -196,10 +197,6 @@ function EditLogDialog({
   const [notes, setNotes] = useState(log.notes ?? "");
   const [saving, setSaving] = useState(false);
 
-  function toggleItem(id: string) {
-    setSelectedIds((prev) => prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]);
-  }
-
   async function save() {
     setSaving(true);
     const supabase = createClient();
@@ -235,27 +232,7 @@ function EditLogDialog({
           {/* Fragrance selection */}
           <div className="space-y-2">
             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fragrances worn</label>
-            <div className="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto">
-              {closetItems.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => toggleItem(item.id)}
-                  className={cn(
-                    "flex items-center gap-2 p-2 rounded-xl border text-left transition-all",
-                    selectedIds.includes(item.id) ? "border-primary bg-primary/5" : "border-border bg-background"
-                  )}
-                >
-                  <div className="w-8 h-8 rounded-lg bg-plum-50 flex items-center justify-center shrink-0 overflow-hidden">
-                    {proxyImageUrl(item.perfume?.image_url) ? (
-                      <Image src={proxyImageUrl(item.perfume!.image_url)!} alt="" width={32} height={32} className="object-contain" unoptimized />
-                    ) : (
-                      <Droplets className="w-4 h-4 text-plum-300" />
-                    )}
-                  </div>
-                  <p className="text-xs font-medium truncate">{item.perfume?.name}</p>
-                </button>
-              ))}
-            </div>
+            <PerfumeSelect items={closetItems} value={selectedIds} onChange={setSelectedIds} placeholder="Search and select fragrances…" />
           </div>
 
           {/* Mood */}

@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
-import { levelToFraction, formatPrice, COLLECTION_TYPES, FRAGRANCE_FAMILIES } from "@/lib/utils";
+import { levelToFraction, formatPrice, COLLECTION_TYPES, FRAGRANCE_FAMILIES, proxyImageUrl } from "@/lib/utils";
 import type { CollectionItem, LayerCombo } from "@/lib/types";
 import { toast } from "sonner";
 import {
@@ -28,6 +29,7 @@ export default function ProfilePage() {
   const [items, setItems] = useState<CollectionItem[]>([]);
   const [savedCombos, setSavedCombos] = useState<LayerCombo[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
+  const [selectedFamily, setSelectedFamily] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -204,18 +206,51 @@ export default function ProfilePage() {
               {scentMap.map(({ family, count }) => {
                 const max = scentMap[0].count;
                 return (
-                  <div key={family} className="space-y-1">
+                  <button
+                    key={family}
+                    className="w-full space-y-1 text-left hover:opacity-80 transition-opacity"
+                    onClick={() => setSelectedFamily(family)}
+                  >
                     <div className="flex justify-between text-xs">
                       <span className="font-medium">{family}</span>
-                      <span className="text-muted-foreground">{count}</span>
+                      <span className="text-muted-foreground">{count} fragrance{count !== 1 ? "s" : ""} →</span>
                     </div>
                     <Progress value={(count / max) * 100} className="h-2" />
-                  </div>
+                  </button>
                 );
               })}
             </div>
           </section>
         )}
+
+        {/* Scent family detail dialog */}
+        <Dialog open={!!selectedFamily} onOpenChange={(open) => { if (!open) setSelectedFamily(null); }}>
+          <DialogContent className="max-w-sm mx-auto max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="font-display">{selectedFamily}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 pt-1">
+              {items
+                .filter((item) => item.perfume?.fragrance_family?.includes(selectedFamily ?? ""))
+                .map((item) => (
+                  <div key={item.id} className="flex items-center gap-3 p-2 rounded-xl bg-muted/50">
+                    <div className="w-10 h-10 rounded-lg bg-plum-50 flex items-center justify-center shrink-0 overflow-hidden">
+                      {proxyImageUrl(item.perfume?.image_url) ? (
+                        <Image src={proxyImageUrl(item.perfume!.image_url)!} alt="" width={40} height={40} className="object-contain" unoptimized />
+                      ) : (
+                        <Droplets className="w-5 h-5 text-plum-300" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{item.perfume?.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">{item.perfume?.brand}</p>
+                    </div>
+                    <Badge variant="secondary" className="text-[10px] shrink-0 ml-auto capitalize">{item.collection_type.replace("_", " ")}</Badge>
+                  </div>
+                ))}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Saved Combos */}
         {savedCombos.length > 0 && (
