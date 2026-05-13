@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { anthropic, MODEL } from "@/lib/anthropic";
+import { openai, MODEL } from "@/lib/openai";
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
@@ -10,35 +10,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No image provided" }, { status: 400 });
   }
 
-  type B64MediaType = "image/jpeg" | "image/png" | "image/webp" | "image/gif";
-
-  let imageSource:
-    | { type: "base64"; media_type: B64MediaType; data: string }
-    | { type: "url"; url: string };
+  let imageDataUrl: string;
 
   if (imageFile) {
     const arrayBuffer = await imageFile.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString("base64");
-    const mt = (imageFile.type || "image/jpeg") as B64MediaType;
-    imageSource = { type: "base64", media_type: mt, data: base64 };
+    const mt = imageFile.type || "image/jpeg";
+    imageDataUrl = `data:${mt};base64,${base64}`;
   } else {
-    imageSource = { type: "url", url: imageUrl! };
+    imageDataUrl = imageUrl!;
   }
 
-  const message = await anthropic.messages.create({
+  const completion = await openai.chat.completions.create({
     model: MODEL,
     max_tokens: 2000,
+    response_format: { type: "json_object" },
     messages: [
       {
         role: "user",
         content: [
-          {
-            type: "image",
-            source: imageSource,
-          },
+          { type: "image_url", image_url: { url: imageDataUrl } },
           {
             type: "text",
-            text: `Identify the perfume in this image. Look at the bottle shape, label, brand name, and any text visible.
+            text: `Identify the perfume in this image. Look at the bottle shape, label, brand name, and any visible text.
 
 Return a JSON object with up to 3 candidates ordered by confidence:
 {
@@ -59,20 +53,18 @@ Return a JSON object with up to 3 candidates ordered by confidence:
   ]
 }
 
-If you cannot identify the perfume, return your best guesses based on bottle style and brand cues.
-Return JSON only.`,
+If you cannot identify the perfume, return your best guesses based on bottle style and brand cues.`,
           },
         ],
       },
     ],
   });
 
-  const text = message.content[0].type === "text" ? message.content[0].text : '{"candidates":[]}';
+  const text = completion.choices[0]?.message?.content ?? '{"candidates":[]}';
 
   let result = { candidates: [] };
   try {
-    const cleaned = text.replace(/```json\n?|\n?```/g, "").trim();
-    result = JSON.parse(cleaned);
+    result = JSON.parse(text);
   } catch {
     result = { candidates: [] };
   }

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { anthropic, MODEL } from "@/lib/anthropic";
+import { openai, MODEL } from "@/lib/openai";
 import { createClient } from "@/lib/supabase/server";
 
 async function buildUserContext(userId: string, supabase: Awaited<ReturnType<typeof createClient>>): Promise<string> {
@@ -45,7 +45,7 @@ async function buildUserContext(userId: string, supabase: Awaited<ReturnType<typ
       .eq("user_id", userId),
   ]);
 
-  const lines: string[] = ["## User's Aura Collection Data\n"];
+  const lines: string[] = ["## User's Sally Collection Data\n"];
 
   if (closet && closet.length > 0) {
     lines.push(`### Perfume Closet (${closet.length} fragrances)`);
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  let systemPrompt = `You are Olfa, an elegant and knowledgeable perfume AI assistant for the Aura app.
+  let systemPrompt = `You are Olfa, an elegant and knowledgeable perfume AI assistant for the Sally app.
 You have deep expertise in fragrances, perfumery, and olfactory science.
 You help users with their personal fragrance collection, recommend perfumes, explain notes and families,
 and answer any fragrance-related questions with warmth and passion.
@@ -127,26 +127,25 @@ Keep responses concise but insightful. Use sensory language that evokes the perf
     systemPrompt += `\n\nYou have access to this user's personal fragrance data. Use it to give personalised, specific answers. When they ask about their collection, logs, wishlist, or combos, refer to the actual data below.\n\n${context}`;
   }
 
-  const stream = await anthropic.messages.stream({
+  const stream = await openai.chat.completions.create({
     model: MODEL,
     max_tokens: 1000,
-    system: systemPrompt,
-    messages: messages.map((m: { role: string; content: string }) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-    })),
+    stream: true,
+    messages: [
+      { role: "system", content: systemPrompt },
+      ...messages.map((m: { role: string; content: string }) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      })),
+    ],
   });
 
   const encoder = new TextEncoder();
   const readable = new ReadableStream({
     async start(controller) {
       for await (const chunk of stream) {
-        if (
-          chunk.type === "content_block_delta" &&
-          chunk.delta.type === "text_delta"
-        ) {
-          controller.enqueue(encoder.encode(chunk.delta.text));
-        }
+        const text = chunk.choices[0]?.delta?.content ?? "";
+        if (text) controller.enqueue(encoder.encode(text));
       }
       controller.close();
     },

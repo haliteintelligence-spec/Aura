@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { anthropic, MODEL } from "@/lib/anthropic";
+import { openai, MODEL } from "@/lib/openai";
 
 export async function POST(request: NextRequest) {
   const { perfumes, occasion, season, mood, count, intensityLongevity, intensitySillage, mode } = await request.json();
@@ -29,9 +29,10 @@ ${perfumes.map((p: { name: string; brand: string; top_notes: string[]; heart_not
 Analyze how these fragrances would interact when layered together.`;
   }
 
-  const message = await anthropic.messages.create({
+  const completion = await openai.chat.completions.create({
     model: MODEL,
     max_tokens: 1500,
+    response_format: { type: "json_object" },
     messages: [
       {
         role: "user",
@@ -48,19 +49,16 @@ Return a JSON object:
   "estimated_sillage": "Moderate | Strong | Intimate",
   "tips": "Practical layering tips",
   "name_suggestion": "A poetic name for this combination"
-}
-
-Return JSON only.`,
+}`,
       },
     ],
   });
 
-  const text = message.content[0].type === "text" ? message.content[0].text : "{}";
+  const text = completion.choices[0]?.message?.content ?? "{}";
 
   let result = {};
   try {
-    const cleaned = text.replace(/```json\n?|\n?```/g, "").trim();
-    result = JSON.parse(cleaned);
+    result = JSON.parse(text);
   } catch {
     result = { combined_profile: text };
   }
