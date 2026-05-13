@@ -210,7 +210,7 @@ export default function HomePage() {
         <div className="px-4 pt-12 pb-6 bg-gradient-to-b from-plum-50 to-background">
           <div className="flex items-center justify-between mb-2">
             <div>
-              <h1 className="font-display text-3xl text-primary">Aura</h1>
+              <h1 className="font-display text-3xl text-primary">Sally</h1>
               <p className="text-sm text-muted-foreground">
                 {user
                   ? `Welcome back, ${user.user_metadata?.display_name ?? user.email?.split("@")[0]}`

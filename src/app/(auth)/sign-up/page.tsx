@@ -42,7 +42,7 @@ export default function SignUpPage() {
       toast.error(error.message);
       setLoading(false);
     } else {
-      toast.success("Account created! Welcome to Aura.");
+      toast.success("Account created! Welcome to Sally.");
       router.push("/");
       router.refresh();
     }

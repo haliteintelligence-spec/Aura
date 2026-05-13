@@ -3,13 +3,13 @@ import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Aura — Your Fragrance Collection",
+  title: "Sally — Your Fragrance Collection",
   description: "Track, discover and explore your personal fragrance collection.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Aura",
+    title: "Sally",
   },
 };
 

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -34,8 +34,8 @@ export function EditItemDialog({ item, open, onClose, onSaved }: EditItemDialogP
   const [fetchedPrices, setFetchedPrices] = useState<Record<string, { min: number; max: number }>>({});
   const [fetchingPrices, setFetchingPrices] = useState(false);
 
-  // Reset when item changes
-  if (item && item.collection_type !== collection && !saving) {
+  useEffect(() => {
+    if (!item) return;
     setCollection(item.collection_type);
     setSizes(item.bottle_sizes ?? []);
     setLevel(item.estimated_level ?? "full");
@@ -43,7 +43,8 @@ export function EditItemDialog({ item, open, onClose, onSaved }: EditItemDialogP
     setOccasions(item.occasions ?? []);
     setRating(item.rating ?? 0);
     setSwap(item.available_for_swap ?? false);
-  }
+    setFetchedPrices({});
+  }, [item?.id]);
 
   if (!item) return null;
 
