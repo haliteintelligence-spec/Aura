@@ -136,12 +136,15 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
       // Upload user photo if present, otherwise use AI-provided image
       let imageUrl = selected.image_url ?? null;
       if (userPhotoFile) {
-        const ext = userPhotoFile.name.split(".").pop() ?? "jpg";
+        const mimeType = userPhotoFile.type || "image/jpeg";
+        const ext = mimeType.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
         const path = `${user.id}/${Date.now()}.${ext}`;
-        const { data: uploadData } = await supabase.storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
           .from("perfume-photos")
-          .upload(path, userPhotoFile, { contentType: userPhotoFile.type, upsert: true });
-        if (uploadData) {
+          .upload(path, userPhotoFile, { contentType: mimeType, upsert: true });
+        if (uploadError) {
+          toast.error(`Photo upload failed: ${uploadError.message}`);
+        } else if (uploadData) {
           const { data: { publicUrl } } = supabase.storage.from("perfume-photos").getPublicUrl(uploadData.path);
           imageUrl = publicUrl;
         }
