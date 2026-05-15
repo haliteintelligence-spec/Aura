@@ -3,9 +3,194 @@ import { openai } from "@/lib/openai";
 
 const FETCH_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
   "Accept-Language": "en-US,en;q=0.9",
 };
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
+const STOP_WORDS = new Set(["de", "du", "la", "le", "les", "the", "and", "for", "eau", "parfum", "toilette", "cologne"]);
+
+function tokenise(s: string): string[] {
+  return s.toLowerCase().split(/[\s\-_'./]+/).filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+}
+
+function scoreMatch(text: string, name: string, brand: string): number {
+  const t = text.toLowerCase();
+  let score = 0;
+  for (const w of tokenise(name)) if (t.includes(w)) score += 2;
+  for (const w of tokenise(brand)) if (t.includes(w)) score += 1;
+  return score;
+}
+
+function extractNotesFromText(text: string, labels: string[]): string[] {
+  for (const label of labels) {
+    const pattern = new RegExp(`${label}\\s*[:\\-]?\\s*([^.\\n<]{3,300})`, "i");
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      const notes = match[1]
+        .split(/[,;|•·]+/)
+        .map((s) => s.replace(/<[^>]+>/g, "").trim())
+        .filter((s) => s.length > 1 && s.length < 50 && !/^(and|the|a|an|with|notes?)$/i.test(s));
+      if (notes.length > 0) return notes.slice(0, 8);
+    }
+  }
+  return [];
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&").replace(/&nbsp;/g, " ").replace(/&#\d+;/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+// ── Brand page (primary source) ───────────────────────────────────────────────
+
+async function getBrandDomain(brand: string): Promise<string | null> {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      max_tokens: 60,
+      messages: [
+        {
+          role: "system",
+          content: "Return only the primary domain of the brand's official website (e.g. kayali.com). No protocol, no path. Return 'unknown' if not confident.",
+        },
+        { role: "user", content: `Official website domain for fragrance brand: "${brand}"` },
+      ],
+    });
+    const text = (completion.choices[0]?.message?.content ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    if (!text || text === "unknown" || !text.includes(".")) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+// Shopify's predict/suggest API — works on all Shopify storefronts
+async function shopifySuggest(domain: string, name: string, brand: string): Promise<string | null> {
+  try {
+    const q = encodeURIComponent(name);
+    const res = await fetch(
+      `https://${domain}/search/suggest.json?q=${q}&resources[type]=product&resources[limit]=10`,
+      { headers: FETCH_HEADERS, signal: AbortSignal.timeout(4000) },
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    const products: Array<{ url: string; title: string }> = json?.resources?.results?.products ?? [];
+    if (products.length === 0) return null;
+
+    const best = products
+      .map((p) => ({ url: p.url, score: scoreMatch(p.title, name, brand) }))
+      .sort((a, b) => b.score - a.score)[0];
+
+    if (best.score === 0) return null;
+    return `https://${domain}${best.url}`;
+  } catch {
+    return null;
+  }
+}
+
+// Generic site search — fallback for non-Shopify stores
+async function siteSearch(domain: string, name: string, brand: string): Promise<string | null> {
+  const paths = [
+    `/search?q=${encodeURIComponent(name)}`,
+    `/search?query=${encodeURIComponent(name)}`,
+    `/search?type=product&q=${encodeURIComponent(name)}`,
+  ];
+
+  for (const path of paths) {
+    try {
+      const res = await fetch(`https://${domain}${path}`, {
+        headers: FETCH_HEADERS,
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) continue;
+      const html = await res.text();
+      const productUrl = bestProductLink(html, domain, name, brand);
+      if (productUrl) return productUrl;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function bestProductLink(html: string, domain: string, name: string, brand: string): string | null {
+  // Match hrefs that look like product detail pages
+  const re = /href="(\/(?:products?|fragrances?|fragrance|shop|p|perfume|item)[^"?#]*(?:\.html?)?)"/gi;
+  const seen = new Set<string>();
+  const entries: Array<{ link: string; score: number }> = [];
+  let m: RegExpExecArray | null;
+
+  while ((m = re.exec(html)) !== null) {
+    const link = m[1];
+    if (seen.has(link) || link.endsWith("/") || link.split("/").length < 2) continue;
+    seen.add(link);
+    entries.push({ link, score: scoreMatch(link, name, brand) });
+  }
+
+  entries.sort((a, b) => b.score - a.score);
+  const best = entries[0];
+  if (!best || best.score === 0) return null;
+  return `https://${domain}${best.link}`;
+}
+
+async function extractFromProductPage(url: string, name: string) {
+  const res = await fetch(url, { headers: FETCH_HEADERS, signal: AbortSignal.timeout(8000) });
+  if (!res.ok) return null;
+  const html = await res.text();
+
+  // Verify this page is actually about the right perfume
+  const nameWords = tokenise(name);
+  const htmlLower = html.toLowerCase();
+  const matchCount = nameWords.filter((w) => htmlLower.includes(w)).length;
+  if (nameWords.length > 1 && matchCount < Math.ceil(nameWords.length * 0.5)) return null;
+
+  // Image: prefer og:image (universal), fall back to first large product img
+  const image_url =
+    html.match(/<meta\s+property="og:image"\s+content="([^"]+)"/i)?.[1] ??
+    html.match(/<meta\s+content="([^"]+)"\s+property="og:image"/i)?.[1] ??
+    null;
+
+  // Description
+  const description =
+    html.match(/<meta\s+property="og:description"\s+content="([^"]{20,})"/i)?.[1] ??
+    html.match(/<meta\s+content="([^"]{20,})"\s+property="og:description"/i)?.[1] ??
+    null;
+
+  // Notes from page text
+  const text = stripHtml(html);
+  const top_notes = extractNotesFromText(text, ["top notes?", "top note"]);
+  const heart_notes = extractNotesFromText(text, ["heart notes?", "heart note", "middle notes?", "middle note"]);
+  const base_notes = extractNotesFromText(text, ["base notes?", "base note"]);
+
+  return { image_url, description, top_notes, heart_notes, base_notes };
+}
+
+async function tryBrandPage(name: string, brand: string) {
+  const domain = await getBrandDomain(brand);
+  if (!domain) return null;
+
+  // Try Shopify suggest (fast, structured JSON)
+  let productUrl = await shopifySuggest(domain, name, brand);
+
+  // Fall back to HTML site search
+  if (!productUrl) productUrl = await siteSearch(domain, name, brand);
+
+  if (!productUrl) return null;
+
+  try {
+    return await extractFromProductPage(productUrl, name);
+  } catch {
+    return null;
+  }
+}
+
+// ── Fragrantica (secondary source) ───────────────────────────────────────────
 
 function extractNoteNames(html: string, label: string): string[] {
   const pattern = new RegExp(`${label}[\\s\\S]{0,200}(<div[\\s\\S]{0,1500}?)(?=<h4|id="pyramid-middle|id="pyramid-base|id="pyramid-top|<\\/div><\\/div><\\/div>)`, "i");
@@ -16,39 +201,20 @@ function extractNoteNames(html: string, label: string): string[] {
     .filter((s) => !/^(Top|Heart|Base|Middle|Notes?|&nbsp;|\s)$/i.test(s));
 }
 
-// Extract all unique detail-page links from Fragrantica search HTML,
-// each paired with the nearest product image found in surrounding context.
 function extractSearchEntries(html: string): Array<{ link: string; imageUrl: string | null }> {
   const entries: Array<{ link: string; imageUrl: string | null }> = [];
   const seen = new Set<string>();
-  const linkRe = /href="(\/perfume\/[^"?#]+\.html)"/g;
+  const re = /href="(\/perfume\/[^"?#]+\.html)"/g;
   let m: RegExpExecArray | null;
-  while ((m = linkRe.exec(html)) !== null) {
+  while ((m = re.exec(html)) !== null) {
     const link = m[1];
     if (seen.has(link)) continue;
     seen.add(link);
-    const start = Math.max(0, m.index - 400);
-    const end = Math.min(html.length, m.index + 700);
-    const context = html.slice(start, end);
-    const img = context.match(/https:\/\/fimgs\.net\/mdimg\/perfume\/375x500\.\d+\.jpg/);
+    const ctx = html.slice(Math.max(0, m.index - 400), Math.min(html.length, m.index + 700));
+    const img = ctx.match(/https:\/\/fimgs\.net\/[^"'\s]+\.(jpg|jpeg|png|webp)/i);
     entries.push({ link, imageUrl: img?.[0] ?? null });
   }
   return entries;
-}
-
-// Score how well a Fragrantica detail URL matches our target brand + name.
-// Fragrantica URLs look like: /perfume/Chanel/Bleu-de-Chanel-49996.html
-// We tokenise both the URL and the target and count keyword hits.
-function scoreEntry(link: string, name: string, brand: string): number {
-  const linkLower = link.toLowerCase();
-  const stopWords = new Set(["de", "du", "la", "le", "les", "the", "and", "for", "by", "eau", "parfum", "toilette", "cologne"]);
-  const tokenise = (s: string) =>
-    s.toLowerCase().split(/[\s\-_'.]+/).filter((w) => w.length > 2 && !stopWords.has(w));
-
-  let score = 0;
-  for (const w of tokenise(brand)) if (linkLower.includes(w)) score += 3;
-  for (const w of tokenise(name)) if (linkLower.includes(w)) score += 1;
-  return score;
 }
 
 async function tryFragrantica(name: string, brand: string) {
@@ -60,17 +226,14 @@ async function tryFragrantica(name: string, brand: string) {
   if (!searchRes.ok) return null;
   const searchHtml = await searchRes.text();
 
-  // Pick the search result whose URL best matches our target — not just the first one
   const entries = extractSearchEntries(searchHtml);
   if (entries.length === 0) return null;
 
+  // Pick best-scoring entry; fall back to first if nothing scores
   const scored = entries
-    .map((e) => ({ ...e, score: scoreEntry(e.link, name, brand) }))
+    .map((e) => ({ ...e, score: scoreMatch(e.link, name, brand) }))
     .sort((a, b) => b.score - a.score);
-
-  const best = scored[0];
-  // Require at least one token match to avoid completely wrong results
-  if (best.score === 0) return null;
+  const best = scored[0].score > 0 ? scored[0] : entries[0];
 
   let image_url = best.imageUrl;
   let top_notes: string[] = [];
@@ -85,8 +248,7 @@ async function tryFragrantica(name: string, brand: string) {
     });
     if (detailRes.ok) {
       const html = await detailRes.text();
-      // Prefer the detail page image (higher resolution / more reliable)
-      const detailImg = html.match(/https:\/\/fimgs\.net\/mdimg\/perfume\/375x500\.\d+\.jpg/);
+      const detailImg = html.match(/https:\/\/fimgs\.net\/[^"'\s]+\.(jpg|jpeg|png|webp)/i);
       if (detailImg?.[0]) image_url = detailImg[0];
 
       top_notes = extractNoteNames(html, "Top Notes");
@@ -97,52 +259,14 @@ async function tryFragrantica(name: string, brand: string) {
       const meta = html.match(/<meta name="description" content="([^"]{10,})"/i)?.[1];
       if (meta) description = meta;
     }
-  } catch { /* use search-page image if detail fetch fails */ }
+  } catch { /* keep image from search page if detail fails */ }
 
   return { image_url, top_notes, heart_notes, base_notes, description };
 }
 
-async function tryScrapeSite(url: string, ...imagePatterns: RegExp[]): Promise<string | null> {
-  try {
-    const res = await fetch(url, {
-      headers: { ...FETCH_HEADERS, Referer: new URL(url).origin },
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) return null;
-    const html = await res.text();
-    for (const p of imagePatterns) {
-      const m = html.match(p);
-      if (m?.[0]) return m[0];
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
+// ── Other image fallbacks ─────────────────────────────────────────────────────
 
-async function fallbackImageSources(name: string, brand: string): Promise<string | null> {
-  const q = encodeURIComponent(`${brand} ${name}`);
-
-  const scentsplit = await tryScrapeSite(
-    `https://www.scentsplit.com/search?q=${q}`,
-    /https:\/\/cdn\.shopify\.com\/s\/files\/[^"'\s]+perfume[^"'\s]+\.(jpg|jpeg|png|webp)/i,
-    /https:\/\/cdn\.shopify\.com\/s\/files\/[^"'\s]+\.(jpg|jpeg|png|webp)/i,
-  );
-  if (scentsplit) return scentsplit;
-
-  const scentbird = await tryScrapeSite(
-    `https://www.scentbird.com/search?q=${q}`,
-    /https:\/\/[a-z0-9.-]*cloudfront\.net\/[^"'\s]+\.(jpg|jpeg|png|webp)/i,
-  );
-  if (scentbird) return scentbird;
-
-  const fragrancex = await tryScrapeSite(
-    `https://www.fragrancex.com/products/_cid_perfume-am-l-00_-sid_search-am-l-00_-lid_1-am-size-am-w_-wsize_5.html?q=${q}`,
-    /https:\/\/[^"'\s]+(?:products|images)[^"'\s]+\.(jpg|jpeg|png|webp)/i,
-  );
-  if (fragrancex) return fragrancex;
-
-  // Final fallback: OpenAI knowledge
+async function fallbackImage(name: string, brand: string): Promise<string | null> {
   try {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -150,11 +274,11 @@ async function fallbackImageSources(name: string, brand: string): Promise<string
       messages: [
         {
           role: "system",
-          content: "Return only a single direct image URL ending in .jpg, .jpeg, .png, or .webp. If unknown, return: null",
+          content: "Return only a single direct image URL ending in .jpg, .jpeg, .png, or .webp. Return 'null' if unknown.",
         },
         {
           role: "user",
-          content: `Direct product bottle image URL for "${name}" by ${brand}. Prefer Fragrantica CDN (fimgs.net) or brand official site. Return URL only or null.`,
+          content: `Direct product bottle image URL for "${name}" by ${brand}. Prefer Fragrantica CDN (fimgs.net) or the brand's official site. Return URL only or null.`,
         },
       ],
     });
@@ -166,32 +290,50 @@ async function fallbackImageSources(name: string, brand: string): Promise<string
   }
 }
 
+// ── Main handler ──────────────────────────────────────────────────────────────
+
 export async function POST(request: NextRequest) {
   const { name, brand } = await request.json();
 
   const empty = { image_url: null, top_notes: [], heart_notes: [], base_notes: [], description: null };
   if (!name || !brand) return NextResponse.json(empty);
 
-  let image_url: string | null = null;
-  let top_notes: string[] = [];
-  let heart_notes: string[] = [];
-  let base_notes: string[] = [];
-  let description: string | null = null;
-
-  try {
-    const result = await tryFragrantica(name, brand);
-    if (result) {
-      image_url = result.image_url;
-      top_notes = result.top_notes;
-      heart_notes = result.heart_notes;
-      base_notes = result.base_notes;
-      description = result.description;
+  // 1. Brand's official website (most accurate)
+  const brandResult = await tryBrandPage(name, brand).catch(() => null);
+  if (brandResult?.image_url) {
+    // Fill any missing notes from Fragrantica if brand page didn't have them
+    if (!brandResult.top_notes.length && !brandResult.heart_notes.length && !brandResult.base_notes.length) {
+      const frag = await tryFragrantica(name, brand).catch(() => null);
+      if (frag) {
+        brandResult.top_notes = frag.top_notes;
+        brandResult.heart_notes = frag.heart_notes;
+        brandResult.base_notes = frag.base_notes;
+        if (!brandResult.description) brandResult.description = frag.description;
+      }
     }
-  } catch { /* fall through */ }
-
-  if (!image_url) {
-    image_url = await fallbackImageSources(name, brand);
+    return NextResponse.json(brandResult);
   }
 
-  return NextResponse.json({ image_url, top_notes, heart_notes, base_notes, description });
+  // 2. Fragrantica
+  const fragResult = await tryFragrantica(name, brand).catch(() => null);
+  if (fragResult) {
+    return NextResponse.json({
+      image_url: brandResult?.image_url ?? fragResult.image_url,
+      description: brandResult?.description ?? fragResult.description,
+      top_notes: brandResult?.top_notes?.length ? brandResult.top_notes : fragResult.top_notes,
+      heart_notes: brandResult?.heart_notes?.length ? brandResult.heart_notes : fragResult.heart_notes,
+      base_notes: brandResult?.base_notes?.length ? brandResult.base_notes : fragResult.base_notes,
+    });
+  }
+
+  // 3. AI-generated image URL as last resort
+  const fallback = await fallbackImage(name, brand);
+  return NextResponse.json({
+    ...empty,
+    image_url: brandResult?.image_url ?? fallback,
+    description: brandResult?.description ?? null,
+    top_notes: brandResult?.top_notes ?? [],
+    heart_notes: brandResult?.heart_notes ?? [],
+    base_notes: brandResult?.base_notes ?? [],
+  });
 }
