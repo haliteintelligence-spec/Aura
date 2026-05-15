@@ -70,22 +70,60 @@ function stripHtml(html: string): string {
 
 // ── Brand page (primary source) ───────────────────────────────────────────────
 
+const FRAGRANCE_KEYWORDS = /\b(fragrance|perfume|parfum|scent|cologne|eau\s*de|edp|edt|notes?|olfact|ml\b|spray|mist|body\s*oil)/i;
+
+async function isFragranceDomain(domain: string): Promise<boolean> {
+  // Quick check: fetch /products.json and see if any product titles/descriptions mention fragrance
+  try {
+    const res = await fetch(`https://${domain}/products.json?limit=10`, {
+      headers: FETCH_HEADERS,
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return false;
+    const json = await res.json() as { products?: Array<{ title: string; body_html?: string; product_type?: string }> };
+    const products = json.products ?? [];
+    if (products.length === 0) return false;
+    return products.some((p) =>
+      FRAGRANCE_KEYWORDS.test(p.title) ||
+      FRAGRANCE_KEYWORDS.test(p.product_type ?? "") ||
+      FRAGRANCE_KEYWORDS.test((p.body_html ?? "").slice(0, 300))
+    );
+  } catch {
+    // No products.json — try homepage for fragrance keywords
+    try {
+      const res = await fetch(`https://${domain}`, { headers: FETCH_HEADERS, signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return false;
+      const text = await res.text();
+      return FRAGRANCE_KEYWORDS.test(text.slice(0, 8000));
+    } catch {
+      return false;
+    }
+  }
+}
+
 async function getBrandDomain(brand: string): Promise<string | null> {
   try {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      max_tokens: 60,
+      max_tokens: 120,
       messages: [
         {
           role: "system",
-          content: "Return only the primary domain of the brand's official website (e.g. kayali.com). No protocol, no path. Return 'unknown' if not confident.",
+          content: "Return up to 3 candidate domains for the fragrance brand's official website, most likely first (e.g. 'kayali.com, kayali.co'). No protocol, no path. Return 'unknown' if not confident.",
         },
-        { role: "user", content: `Official website domain for fragrance brand: "${brand}"` },
+        { role: "user", content: `Official website domain(s) for fragrance brand: "${brand}"` },
       ],
     });
-    const text = (completion.choices[0]?.message?.content ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-    if (!text || text === "unknown" || !text.includes(".")) return null;
-    return text;
+    const raw = (completion.choices[0]?.message?.content ?? "").trim().toLowerCase();
+    const candidates = raw
+      .split(/[\s,;|]+/)
+      .map((d) => d.replace(/^https?:\/\//, "").replace(/\/.*$/, "").trim())
+      .filter((d) => d && d !== "unknown" && d.includes(".") && !d.includes(" "));
+
+    for (const domain of candidates) {
+      if (await isFragranceDomain(domain)) return domain;
+    }
+    return null;
   } catch {
     return null;
   }
