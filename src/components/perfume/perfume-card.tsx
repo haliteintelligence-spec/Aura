@@ -67,7 +67,7 @@ export function PerfumeCard({ item, onClick, className }: PerfumeCardProps) {
           </h3>
         </div>
 
-        {/* Notes preview */}
+        {/* Fragrance family */}
         {perfume.fragrance_family?.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {perfume.fragrance_family.slice(0, 2).map((f) => (
@@ -75,6 +75,27 @@ export function PerfumeCard({ item, onClick, className }: PerfumeCardProps) {
                 {f}
               </Badge>
             ))}
+          </div>
+        )}
+
+        {/* Notes */}
+        {(perfume.top_notes?.length > 0 || perfume.heart_notes?.length > 0 || perfume.base_notes?.length > 0) && (
+          <div className="space-y-0.5">
+            {perfume.top_notes?.length > 0 && (
+              <p className="text-[9px] text-muted-foreground leading-relaxed">
+                <span className="font-medium">T </span>{perfume.top_notes.slice(0, 3).join(", ")}
+              </p>
+            )}
+            {perfume.heart_notes?.length > 0 && (
+              <p className="text-[9px] text-muted-foreground leading-relaxed">
+                <span className="font-medium">H </span>{perfume.heart_notes.slice(0, 3).join(", ")}
+              </p>
+            )}
+            {perfume.base_notes?.length > 0 && (
+              <p className="text-[9px] text-muted-foreground leading-relaxed">
+                <span className="font-medium">B </span>{perfume.base_notes.slice(0, 3).join(", ")}
+              </p>
+            )}
           </div>
         )}
 

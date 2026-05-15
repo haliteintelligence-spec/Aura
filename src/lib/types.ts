@@ -55,6 +55,7 @@ export interface ScentLog {
   date: string;
   mood: string[];
   event_type: string;
+  event_types: string[];
   rating: number;
   duration: string;
   notes: string | null;

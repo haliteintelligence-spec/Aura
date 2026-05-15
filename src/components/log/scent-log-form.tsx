@@ -4,15 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { MultiSelect } from "@/components/ui/multi-select";
-import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
 import { checkAndAwardBadges } from "@/lib/badges";
-import { MOODS, EVENT_TYPES, DURATION_RANGES } from "@/lib/utils";
+import { MOODS, EVENT_TYPES, DURATION_RANGES, cn } from "@/lib/utils";
 import type { CollectionItem } from "@/lib/types";
 import { PerfumeSelect } from "@/components/ui/perfume-select";
 import { toast } from "sonner";
 import { Loader2, CheckCircle2 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 
 interface ScentLogFormProps {
@@ -23,7 +21,7 @@ export function ScentLogForm({ onSaved }: ScentLogFormProps) {
   const [closetItems, setClosetItems] = useState<CollectionItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [mood, setMood] = useState<string[]>([]);
-  const [eventType, setEventType] = useState("");
+  const [eventTypes, setEventTypes] = useState<string[]>([]);
   const [rating, setRating] = useState(5);
   const [duration, setDuration] = useState("");
   const [notes, setNotes] = useState("");
@@ -52,7 +50,8 @@ export function ScentLogForm({ onSaved }: ScentLogFormProps) {
         collection_item_ids: selectedIds,
         date: format(new Date(), "yyyy-MM-dd"),
         mood,
-        event_type: eventType,
+        event_type: eventTypes[0] ?? "",
+        event_types: eventTypes,
         rating,
         duration,
         notes: notes || null,
@@ -76,7 +75,7 @@ export function ScentLogForm({ onSaved }: ScentLogFormProps) {
         <CheckCircle2 className="w-14 h-14 text-primary" />
         <p className="font-display text-xl">Logged!</p>
         <p className="text-sm text-muted-foreground">Your scent has been recorded.</p>
-        <Button variant="outline" onClick={() => { setDone(false); setSelectedIds([]); setMood([]); setEventType(""); setRating(5); setDuration(""); setNotes(""); }}>
+        <Button variant="outline" onClick={() => { setDone(false); setSelectedIds([]); setMood([]); setEventTypes([]); setRating(5); setDuration(""); setNotes(""); }}>
           Log another
         </Button>
       </div>
@@ -105,20 +104,7 @@ export function ScentLogForm({ onSaved }: ScentLogFormProps) {
       {/* Event */}
       <div className="space-y-2">
         <label className="text-sm font-semibold">Occasion</label>
-        <div className="flex flex-wrap gap-2">
-          {EVENT_TYPES.map((e) => (
-            <button
-              key={e}
-              onClick={() => setEventType(e === eventType ? "" : e)}
-              className={cn(
-                "px-3 py-1.5 rounded-full text-xs border transition-colors",
-                eventType === e ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border"
-              )}
-            >
-              {e}
-            </button>
-          ))}
-        </div>
+        <MultiSelect options={EVENT_TYPES} value={eventTypes} onChange={setEventTypes} placeholder="Select occasions…" />
       </div>
 
       {/* Duration */}

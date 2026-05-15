@@ -106,7 +106,11 @@ export default function ScentJournalPage() {
                   <div className="flex items-start justify-between">
                     <div>
                       <p className="font-display text-base">{format(new Date(log.date), "EEEE, MMM d yyyy")}</p>
-                      {log.event_type && <p className="text-xs text-muted-foreground">{log.event_type}</p>}
+                      {(log.event_types?.length > 0 || log.event_type) && (
+                        <p className="text-xs text-muted-foreground">
+                          {(log.event_types?.length > 0 ? log.event_types : [log.event_type]).join(" · ")}
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {log.rating && (
@@ -191,7 +195,7 @@ function EditLogDialog({
 }) {
   const [selectedIds, setSelectedIds] = useState<string[]>(log.collection_item_ids ?? []);
   const [mood, setMood] = useState<string[]>(log.mood ?? []);
-  const [eventType, setEventType] = useState(log.event_type ?? "");
+  const [eventTypes, setEventTypes] = useState<string[]>(log.event_types?.length ? log.event_types : (log.event_type ? [log.event_type] : []));
   const [duration, setDuration] = useState(log.duration ?? "");
   const [rating, setRating] = useState(log.rating ?? 5);
   const [notes, setNotes] = useState(log.notes ?? "");
@@ -205,7 +209,8 @@ function EditLogDialog({
       .update({
         collection_item_ids: selectedIds,
         mood,
-        event_type: eventType,
+        event_type: eventTypes[0] ?? "",
+        event_types: eventTypes,
         duration,
         rating,
         notes: notes || null,
@@ -216,7 +221,7 @@ function EditLogDialog({
       toast.error("Failed to save");
     } else {
       toast.success("Log updated");
-      onSaved({ ...log, collection_item_ids: selectedIds, mood, event_type: eventType, duration, rating, notes: notes || null });
+      onSaved({ ...log, collection_item_ids: selectedIds, mood, event_type: eventTypes[0] ?? "", event_types: eventTypes, duration, rating, notes: notes || null });
     }
     setSaving(false);
   }
@@ -244,15 +249,7 @@ function EditLogDialog({
           {/* Occasion */}
           <div className="space-y-2">
             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Occasion</label>
-            <div className="flex flex-wrap gap-1.5">
-              {EVENT_TYPES.map((e) => (
-                <button key={e} onClick={() => setEventType(e === eventType ? "" : e)}
-                  className={cn("px-2.5 py-1 rounded-full text-xs border transition-colors",
-                    eventType === e ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border")}>
-                  {e}
-                </button>
-              ))}
-            </div>
+            <MultiSelect options={EVENT_TYPES} value={eventTypes} onChange={setEventTypes} placeholder="Select occasions…" />
           </div>
 
           {/* Duration */}

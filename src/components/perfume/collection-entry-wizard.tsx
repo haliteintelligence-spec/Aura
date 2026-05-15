@@ -31,6 +31,8 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
   const [candidates, setCandidates] = useState<PerfumeSearchResult[]>([]);
   const [candidateIdx, setCandidateIdx] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [seenKeys, setSeenKeys] = useState<Set<string>>(new Set());
 
   // Details state
   const [collection, setCollection] = useState<"closet" | "wishlist" | "owned_before">(initialCollection);
@@ -63,12 +65,16 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
   }
 
   async function selectSuggestion(p: PerfumeSearchResult) {
-    setCandidates([p]);
+    const rest = suggestions.filter((s) => !(s.name === p.name && s.brand === p.brand));
+    const allCandidates = [p, ...rest];
+    const initialSeen = new Set(allCandidates.map((c) => `${c.brand}||${c.name}`));
+    setCandidates(allCandidates);
+    setSeenKeys(initialSeen);
     setCandidateIdx(0);
     setSuggestions([]);
     setQuery(`${p.brand} ${p.name}`);
     setStep("confirm");
-    // Enrich with Fragrantica photo + notes in background
+    // Enrich selected perfume with Fragrantica photo + notes in background
     try {
       const res = await fetch("/api/perfume/details", {
         method: "POST",
@@ -82,14 +88,52 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
       if (data.heart_notes?.length) enriched.heart_notes = data.heart_notes;
       if (data.base_notes?.length) enriched.base_notes = data.base_notes;
       if (data.description) enriched.description = data.description;
-      setCandidates([enriched]);
+      setCandidates((prev) => [enriched, ...prev.slice(1)]);
     } catch {}
+  }
 
+  async function suggestMore() {
+    setLoadingMore(true);
+    try {
+      let fresh: PerfumeSearchResult[] = [];
+      if (userPhotoFile) {
+        const formData = new FormData();
+        formData.append("image", userPhotoFile);
+        const res = await fetch("/api/perfume/identify", { method: "POST", body: formData });
+        const data = await res.json();
+        fresh = data.results || data || [];
+      } else {
+        const res = await fetch("/api/perfume/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query }),
+        });
+        const data = await res.json();
+        fresh = data.results || [];
+      }
+      const novel = fresh.filter((r) => !seenKeys.has(`${r.brand}||${r.name}`));
+      if (novel.length === 0) {
+        toast.error("No more suggestions found. Try searching by name.");
+        return;
+      }
+      setSeenKeys((prev) => {
+        const next = new Set(prev);
+        novel.forEach((r) => next.add(`${r.brand}||${r.name}`));
+        return next;
+      });
+      setCandidates((prev) => [...prev, ...novel]);
+      setCandidateIdx((i) => i + 1);
+    } catch {
+      toast.error("Couldn't fetch more suggestions");
+    } finally {
+      setLoadingMore(false);
+    }
   }
 
   function handlePhotoResult(result: PerfumeSearchResult[]) {
     if (result.length > 0) {
       setCandidates(result);
+      setSeenKeys(new Set(result.map((r) => `${r.brand}||${r.name}`)));
       setCandidateIdx(0);
       setStep("confirm");
     } else {
@@ -133,7 +177,7 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { toast.error("Please sign in to save to your collection"); return; }
 
-      // Upload user photo if present, otherwise use AI-provided image
+      // Upload user photo if present
       let imageUrl = selected.image_url ?? null;
       if (userPhotoFile) {
         const mimeType = userPhotoFile.type || "image/jpeg";
@@ -148,6 +192,24 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
           const { data: { publicUrl } } = supabase.storage.from("perfume-photos").getPublicUrl(uploadData.path);
           imageUrl = publicUrl;
         }
+      } else if (imageUrl && !imageUrl.includes(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "supabase.co")) {
+        // Cache external image (e.g. Fragrantica CDN) permanently in Supabase Storage
+        try {
+          const proxyRes = await fetch(`/api/image-proxy?url=${encodeURIComponent(imageUrl)}`);
+          if (proxyRes.ok) {
+            const blob = await proxyRes.blob();
+            const ext = blob.type.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
+            const slug = `${selected.brand}_${selected.name}`.replace(/[^a-z0-9]/gi, "_").toLowerCase().slice(0, 80);
+            const path = `product/${slug}.${ext}`;
+            const { data: uploadData, error: uploadError } = await supabase.storage
+              .from("perfume-images")
+              .upload(path, blob, { contentType: blob.type, upsert: true });
+            if (!uploadError && uploadData) {
+              const { data: { publicUrl } } = supabase.storage.from("perfume-images").getPublicUrl(uploadData.path);
+              imageUrl = publicUrl;
+            }
+          }
+        } catch { /* non-critical — fall back to original external URL */ }
       }
 
       // Upsert perfume
@@ -301,20 +363,25 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
         </div>
 
         <div className="flex gap-3">
-          {candidateIdx < candidates.length - 1 && (
-            <Button variant="outline" className="flex-1 gap-2" onClick={() => setCandidateIdx((i) => i + 1)}>
-              <RefreshCw className="w-4 h-4" /> Not this one
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            className="flex-1 gap-2"
+            disabled={loadingMore}
+            onClick={() => {
+              if (candidateIdx < candidates.length - 1) {
+                setCandidateIdx((i) => i + 1);
+              } else {
+                suggestMore();
+              }
+            }}
+          >
+            {loadingMore ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            Not this one
+          </Button>
           <Button className="flex-1 gap-2" onClick={() => setStep("details")}>
             Yes, that's it <ChevronRight className="w-4 h-4" />
           </Button>
         </div>
-        {candidateIdx >= candidates.length - 1 && (
-          <Button variant="ghost" className="w-full text-sm" onClick={() => setStep("find")}>
-            Search again
-          </Button>
-        )}
       </div>
     );
   }
