@@ -168,6 +168,20 @@ async function findProductUrl(domain: string, name: string, brand: string): Prom
       if (entries[0]?.score > 0) return `https://${domain}${entries[0].link}`;
     } catch { continue; }
   }
+
+  // Shopify products.json fallback (for JS-rendered storefronts)
+  try {
+    const catalogRes = await fetch(`https://${domain}/products.json?limit=250`, { headers: FETCH_HEADERS, signal: AbortSignal.timeout(7000) });
+    if (catalogRes.ok) {
+      const json = await catalogRes.json() as { products?: Array<{ title: string; handle: string }> };
+      const best = (json.products ?? [])
+        .map((p) => ({ p, score: scoreMatch(`${p.title} ${p.handle}`, name, brand) }))
+        .filter((x) => x.score > 0)
+        .sort((a, b) => b.score - a.score)[0];
+      if (best) return `https://${domain}/products/${best.p.handle}`;
+    }
+  } catch { /* fall through */ }
+
   return null;
 }
 

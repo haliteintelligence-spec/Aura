@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
 
+interface ShopifyProduct {
+  title: string;
+  handle: string;
+  body_html?: string;
+  images?: Array<{ src: string }>;
+  variants?: Array<{ title: string; price: string; compare_at_price: string | null }>;
+}
+
 const FETCH_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -83,9 +91,7 @@ async function getBrandDomain(brand: string): Promise<string | null> {
   }
 }
 
-// Fetch a brand search page and return { productUrl, imageUrl } for the best match.
-// Handles Shopify (embedded JSON in page) and generic HTML search pages.
-async function brandSearch(domain: string, name: string, brand: string): Promise<{ productUrl: string | null; imageUrl: string | null }> {
+async function brandSearch(domain: string, name: string, brand: string): Promise<{ productUrl: string | null; imageUrl: string | null; shopifyProduct?: ShopifyProduct }> {
   const q = encodeURIComponent(name);
   const searchPaths = [
     `/search?q=${q}&type=product`,
@@ -139,6 +145,29 @@ async function brandSearch(domain: string, name: string, brand: string): Promise
       continue;
     }
   }
+  // ── Shopify products.json fallback (works when search page is JS-rendered) ──
+  // Shopify stores expose /products.json with full product data including images.
+  try {
+    const catalogRes = await fetch(`https://${domain}/products.json?limit=250`, {
+      headers: FETCH_HEADERS,
+      signal: AbortSignal.timeout(7000),
+    });
+    if (catalogRes.ok) {
+      const json = await catalogRes.json() as { products?: ShopifyProduct[] };
+      const products = json.products ?? [];
+      const scored = products
+        .map((p) => ({ p, score: scoreMatch(`${p.title} ${p.handle}`, name, brand) }))
+        .filter((x) => x.score > 0)
+        .sort((a, b) => b.score - a.score);
+      if (scored.length > 0) {
+        const best = scored[0].p;
+        const imageUrl = best.images?.[0]?.src ?? null;
+        const productUrl = `https://${domain}/products/${best.handle}`;
+        return { productUrl, imageUrl, shopifyProduct: best };
+      }
+    }
+  } catch { /* fall through */ }
+
   return { productUrl: null, imageUrl: null };
 }
 
@@ -230,7 +259,30 @@ async function tryBrandPage(name: string, brand: string) {
   const domain = await getBrandDomain(brand);
   if (!domain) return null;
 
-  const { productUrl, imageUrl: searchImageUrl } = await brandSearch(domain, name, brand);
+  const { productUrl, imageUrl: searchImageUrl, shopifyProduct } = await brandSearch(domain, name, brand);
+
+  // 0. If the products.json catalogue returned a Shopify product, extract notes from body_html directly.
+  //    This handles JS-rendered storefronts where the product page has no static note content.
+  if (shopifyProduct) {
+    const text = (shopifyProduct.body_html ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    const top_notes = extractNotesFromText(text, ["top notes?", "top note"]);
+    const heart_notes = extractNotesFromText(text, ["heart notes?", "heart note", "middle notes?", "middle note"]);
+    const base_notes = extractNotesFromText(text, ["base notes?", "base note"]);
+    const image_url = searchImageUrl ?? shopifyProduct.images?.[0]?.src ?? null;
+    const description = text.trim().slice(0, 500) || null;
+    // Return if we got at least an image or notes (page scrape below will try to enrich further)
+    if (image_url || top_notes.length || heart_notes.length || base_notes.length) {
+      // Still try the product page for better data, but don't block on it
+      const pageResult = productUrl ? await extractFromProductPage(productUrl, name).catch(() => null) : null;
+      return {
+        image_url: pageResult?.image_url ?? image_url,
+        description: pageResult?.description ?? description,
+        top_notes: pageResult?.top_notes?.length ? pageResult.top_notes : top_notes,
+        heart_notes: pageResult?.heart_notes?.length ? pageResult.heart_notes : heart_notes,
+        base_notes: pageResult?.base_notes?.length ? pageResult.base_notes : base_notes,
+      };
+    }
+  }
 
   // 1. Try URL found via search page
   if (productUrl) {

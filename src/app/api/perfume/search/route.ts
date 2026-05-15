@@ -117,6 +117,33 @@ async function searchBrandSite(domain: string, name: string, brand: string): Pro
       continue;
     }
   }
+
+  // ── Shopify products.json fallback (handles JS-rendered search pages) ────────
+  try {
+    const catalogRes = await fetch(`https://${domain}/products.json?limit=250`, {
+      headers: FETCH_HEADERS,
+      signal: AbortSignal.timeout(7000),
+    });
+    if (catalogRes.ok) {
+      const json = await catalogRes.json() as { products?: Array<{ title: string; handle: string; images?: Array<{ src: string }> }> };
+      const products = json.products ?? [];
+      return products
+        .map((p) => ({ p, score: scoreMatch(`${p.title} ${p.handle}`, name, brand) }))
+        .filter((x) => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 8)
+        .map(({ p }) => ({
+          name: p.title,
+          brand,
+          top_notes: [],
+          heart_notes: [],
+          base_notes: [],
+          fragrance_family: [],
+          image_url: p.images?.[0]?.src ?? undefined,
+        }));
+    }
+  } catch { /* fall through */ }
+
   return [];
 }
 
