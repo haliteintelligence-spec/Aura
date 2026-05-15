@@ -49,7 +49,9 @@ function extractNotesFromText(text: string, labels: string[]): string[] {
     const pattern = new RegExp(`${label}\\s*[:\\-]?\\s*([^.\\n<]{3,300})`, "i");
     const match = text.match(pattern);
     if (match?.[1]) {
-      const notes = match[1]
+      // Stop at the next notes section label to avoid bleeding into adjacent sections
+      const section = match[1].split(/\s*(?:top|heart|middle|base)\s*notes?\s*[:\-]/i)[0];
+      const notes = section
         .split(/[,;|•·]+/)
         .map((s) => s.replace(/<[^>]+>/g, "").trim())
         .filter((s) => isValidNote(s) && !/^(and|the|a|an|with|notes?)$/i.test(s));
@@ -198,7 +200,11 @@ async function brandSearch(domain: string, name: string, brand: string): Promise
         .filter((x) => x.score > 0)
         .sort((a, b) => b.score - a.score);
       if (scored.length > 0) {
-        const best = scored[0].p;
+        // Prefer products whose body_html contains a note pyramid
+        const withNotes = scored.find(({ p }) =>
+          /(top|heart|middle|base)\s*notes?\s*[:\-]/i.test(p.body_html ?? "")
+        );
+        const best = (withNotes ?? scored[0]).p;
         const imageUrl = best.images?.[0]?.src ?? null;
         const productUrl = `https://${domain}/products/${best.handle}`;
         return { productUrl, imageUrl, shopifyProduct: best };
