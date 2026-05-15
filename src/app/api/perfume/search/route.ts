@@ -162,6 +162,15 @@ async function searchWithGPT(brand?: string, name?: string): Promise<{ brand: st
 
 // ── Route handler ─────────────────────────────────────────────────────────────
 
+function normaliseResults(results: PerfumeSearchResult[]): PerfumeSearchResult[] {
+  return results.map((r) => ({
+    ...r,
+    fragrance_family: r.fragrance_family?.map((f) =>
+      /oriental/i.test(f) ? f.replace(/oriental/gi, "Resinous") : f
+    ) ?? [],
+  }));
+}
+
 export async function POST(request: NextRequest) {
   const { brand, name } = await request.json();
 
@@ -186,10 +195,10 @@ export async function POST(request: NextRequest) {
     if (domain) {
       const brandResults = await searchBrandSite(domain, n!, b!).catch(() => [] as PerfumeSearchResult[]);
       if (brandResults.length > 0) {
-        return NextResponse.json({ brand: b, results: brandResults });
+        return NextResponse.json({ brand: b, results: normaliseResults(brandResults) });
       }
     }
   }
 
-  return NextResponse.json({ brand: gpt.brand || b || "", results: gpt.results });
+  return NextResponse.json({ brand: gpt.brand || b || "", results: normaliseResults(gpt.results) });
 }

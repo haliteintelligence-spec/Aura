@@ -34,6 +34,41 @@ export function CollectionGrid({ collectionType, title }: CollectionGridProps) {
   const [filterFamilies, setFilterFamilies] = useState<string[]>([]);
   const [sort, setSort] = useState<SortOption>("brand_asc");
 
+  const backfillMissing = useCallback(async (loaded: CollectionItem[]) => {
+    const toFill = loaded.filter((i) => i.perfume && (!i.perfume.image_url || !i.perfume.top_notes?.length));
+    if (toFill.length === 0) return;
+
+    const supabase = createClient();
+    for (const item of toFill) {
+      if (!item.perfume) continue;
+      try {
+        const res = await fetch("/api/perfume/details", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: item.perfume.name, brand: item.perfume.brand }),
+        });
+        if (!res.ok) continue;
+        const details = await res.json();
+
+        const updates: Record<string, unknown> = {};
+        if (details.image_url && !item.perfume.image_url) updates.image_url = details.image_url;
+        if (details.top_notes?.length && !item.perfume.top_notes?.length) updates.top_notes = details.top_notes;
+        if (details.heart_notes?.length && !item.perfume.heart_notes?.length) updates.heart_notes = details.heart_notes;
+        if (details.base_notes?.length && !item.perfume.base_notes?.length) updates.base_notes = details.base_notes;
+        if (details.description && !item.perfume.description) updates.description = details.description;
+
+        if (Object.keys(updates).length === 0) continue;
+
+        await supabase.from("perfumes").update(updates).eq("id", item.perfume.id);
+        setItems((prev) =>
+          prev.map((i) =>
+            i.perfume?.id === item.perfume!.id ? { ...i, perfume: { ...i.perfume!, ...updates } } : i
+          )
+        );
+      } catch { /* ignore per-item errors */ }
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     const supabase = createClient();
@@ -41,9 +76,11 @@ export function CollectionGrid({ collectionType, title }: CollectionGridProps) {
       .from("collection_items")
       .select("*, perfume:perfumes(*)")
       .eq("collection_type", collectionType);
-    setItems((data as CollectionItem[]) ?? []);
+    const loaded = (data as CollectionItem[]) ?? [];
+    setItems(loaded);
     setLoading(false);
-  }, [collectionType]);
+    backfillMissing(loaded);
+  }, [collectionType, backfillMissing]);
 
   useEffect(() => { load(); }, [load]);
 

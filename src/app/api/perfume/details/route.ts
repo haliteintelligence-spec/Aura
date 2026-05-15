@@ -23,6 +23,19 @@ function scoreMatch(text: string, name: string, brand: string): number {
   return score;
 }
 
+function isValidNote(s: string): boolean {
+  const t = s.trim();
+  if (t.length < 2 || t.length > 35) return false;
+  if (!/[a-z]/i.test(t)) return false;
+  // Reject size/measurement and price patterns
+  if (/\d+\s*(ml|oz|fl|mg|cl|g\b)/i.test(t)) return false;
+  if (/[$€£]\s*\d/.test(t)) return false;
+  if (/^\d+$/.test(t)) return false;
+  // Reject obvious non-note words
+  if (/^(size|qty|quantity|add|buy|shop|view|more|select|free|shipping|return|policy|sale|discount|stock|available|option|color|colour|new|gift|set|kit|bundle)$/i.test(t)) return false;
+  return true;
+}
+
 function extractNotesFromText(text: string, labels: string[]): string[] {
   for (const label of labels) {
     const pattern = new RegExp(`${label}\\s*[:\\-]?\\s*([^.\\n<]{3,300})`, "i");
@@ -31,7 +44,7 @@ function extractNotesFromText(text: string, labels: string[]): string[] {
       const notes = match[1]
         .split(/[,;|•·]+/)
         .map((s) => s.replace(/<[^>]+>/g, "").trim())
-        .filter((s) => s.length > 1 && s.length < 50 && !/^(and|the|a|an|with|notes?)$/i.test(s));
+        .filter((s) => isValidNote(s) && !/^(and|the|a|an|with|notes?)$/i.test(s));
       if (notes.length > 0) return notes.slice(0, 8);
     }
   }
@@ -358,7 +371,7 @@ async function tryRetailers(name: string, brand: string) {
 
 // ── AI fallback: notes + optional image ──────────────────────────────────────
 
-async function getAIFallback(name: string, brand: string, needImage: boolean) {
+async function getAIFallback(name: string, brand: string) {
   try {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -367,15 +380,11 @@ async function getAIFallback(name: string, brand: string, needImage: boolean) {
       messages: [
         {
           role: "system",
-          content: needImage
-            ? "Return fragrance pyramid notes and a direct bottle image URL for the given perfume. Only include notes and image you are certain about."
-            : "Return the fragrance pyramid notes (top, heart, base) for the given perfume. Only include notes you are certain about.",
+          content: "Return the fragrance pyramid notes (top, heart, base) AND a direct bottle image URL for the given perfume. Only include what you are certain about. Do not use the term 'Oriental' — use 'Resinous' instead.",
         },
         {
           role: "user",
-          content: needImage
-            ? `"${name}" by ${brand}. Return JSON: { "top_notes": ["note"], "heart_notes": ["note"], "base_notes": ["note"], "image_url": "https://..." or null }`
-            : `"${name}" by ${brand}. Return JSON: { "top_notes": ["note"], "heart_notes": ["note"], "base_notes": ["note"] }`,
+          content: `"${name}" by ${brand}. Return JSON: { "top_notes": ["note"], "heart_notes": ["note"], "base_notes": ["note"], "image_url": "https://..." or null }`,
         },
       ],
     });
@@ -432,14 +441,9 @@ export async function POST(request: NextRequest) {
     merge(await tryRetailers(name, brand).catch(() => null));
   }
 
-  // 4. AI fallback — always fires when notes are still empty (web scraping misses most
-  //    brand pages that render notes as images or JS; GPT knows major fragrances)
-  if (!top_notes.length && !heart_notes.length && !base_notes.length) {
-    merge(await getAIFallback(name, brand, !image_url).catch(() => null));
-  } else if (!image_url) {
-    // Have notes but no image — ask AI just for the image
-    const ai = await getAIFallback(name, brand, true).catch(() => null);
-    if (ai?.image_url) image_url = ai.image_url;
+  // 4. AI fallback — fires when EITHER notes or image are still missing
+  if (!top_notes.length || !image_url) {
+    merge(await getAIFallback(name, brand).catch(() => null));
   }
 
   return NextResponse.json({ image_url, description, top_notes, heart_notes, base_notes });

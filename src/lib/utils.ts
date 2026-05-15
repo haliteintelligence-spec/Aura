@@ -104,7 +104,7 @@ export const DURATION_RANGES = [
 ];
 
 export const FRAGRANCE_FAMILIES = [
-  "Floral", "Woody", "Oriental / Amber", "Fresh / Citrus",
+  "Floral", "Woody", "Resinous / Amber", "Fresh / Citrus",
   "Fougère", "Chypre", "Gourmand", "Aquatic", "Aromatic",
   "Green", "Fruity", "Powdery", "Leather", "Spicy",
 ];

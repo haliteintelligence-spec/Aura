@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { PhotoCapture } from "./photo-capture";
 import { cn, BOTTLE_SIZES, SEASONS, OCCASIONS, PRODUCT_LEVELS, COLLECTION_TYPES, proxyImageUrl } from "@/lib/utils";
 import type { PerfumeSearchResult } from "@/lib/types";
-import { CheckCircle2, ChevronLeft, ChevronRight, Loader2, RefreshCw, Droplets } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, Loader2, RefreshCw, Droplets, Search } from "lucide-react";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
@@ -146,6 +146,41 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
     }
 
     scheduleSearch(brandQuery, name);
+  }
+
+  async function handleSearch() {
+    const b = brandQuery.trim();
+    const n = nameQuery.trim();
+    if (!b || !n) return;
+    setSearching(true);
+    setNoResults(false);
+    setSuggestions([]);
+    try {
+      const res = await fetch("/api/perfume/details", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: n, brand: b }),
+      });
+      const data = await res.json();
+      const result: PerfumeSearchResult = {
+        name: n,
+        brand: b,
+        top_notes: data.top_notes ?? [],
+        heart_notes: data.heart_notes ?? [],
+        base_notes: data.base_notes ?? [],
+        fragrance_family: [],
+        image_url: data.image_url ?? null,
+        description: data.description ?? null,
+      };
+      setCandidates([result]);
+      setSeenKeys(new Set([`${b}||${n}`]));
+      setCandidateIdx(0);
+      setStep("confirm");
+    } catch {
+      toast.error("Search failed — please try again");
+    } finally {
+      setSearching(false);
+    }
   }
 
   async function selectSuggestion(p: PerfumeSearchResult) {
@@ -388,6 +423,21 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
               {searching && <Loader2 className="absolute right-3 top-3 w-4 h-4 animate-spin text-muted-foreground" />}
             </div>
           </div>
+
+          {/* Explicit search button — appears when both fields are filled */}
+          {brandQuery.trim().length >= 2 && nameQuery.trim().length >= 2 && (
+            <Button
+              onClick={handleSearch}
+              disabled={searching}
+              className="w-full gap-2"
+              variant="default"
+            >
+              {searching
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Search className="w-4 h-4" />}
+              {searching ? "Searching…" : `Search for "${nameQuery.trim()}" by ${brandQuery.trim()}`}
+            </Button>
+          )}
 
           {/* No-results prompt */}
           {noResults && (
