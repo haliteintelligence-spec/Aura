@@ -356,88 +356,91 @@ async function tryRetailers(name: string, brand: string) {
   return null;
 }
 
-// ── Other image fallbacks ─────────────────────────────────────────────────────
+// ── AI fallback: notes + optional image ──────────────────────────────────────
 
-async function fallbackImage(name: string, brand: string): Promise<string | null> {
+async function getAIFallback(name: string, brand: string, needImage: boolean) {
   try {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      max_tokens: 200,
+      max_tokens: 400,
+      response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
-          content: "Return only a single direct image URL ending in .jpg, .jpeg, .png, or .webp. Return 'null' if unknown.",
+          content: needImage
+            ? "Return fragrance pyramid notes and a direct bottle image URL for the given perfume. Only include notes and image you are certain about."
+            : "Return the fragrance pyramid notes (top, heart, base) for the given perfume. Only include notes you are certain about.",
         },
         {
           role: "user",
-          content: `Direct product bottle image URL for "${name}" by ${brand}. Prefer Fragrantica CDN (fimgs.net) or the brand's official site. Return URL only or null.`,
+          content: needImage
+            ? `"${name}" by ${brand}. Return JSON: { "top_notes": ["note"], "heart_notes": ["note"], "base_notes": ["note"], "image_url": "https://..." or null }`
+            : `"${name}" by ${brand}. Return JSON: { "top_notes": ["note"], "heart_notes": ["note"], "base_notes": ["note"] }`,
         },
       ],
     });
-    const text = (completion.choices[0]?.message?.content ?? "").trim();
-    const m = text.match(/https?:\/\/\S+\.(jpg|jpeg|png|webp)/i);
-    return m?.[0] ?? null;
+    const parsed = JSON.parse(completion.choices[0]?.message?.content ?? "{}");
+    return {
+      top_notes: Array.isArray(parsed.top_notes) ? parsed.top_notes : [],
+      heart_notes: Array.isArray(parsed.heart_notes) ? parsed.heart_notes : [],
+      base_notes: Array.isArray(parsed.base_notes) ? parsed.base_notes : [],
+      image_url: typeof parsed.image_url === "string" && parsed.image_url !== "null"
+        ? parsed.image_url
+        : null,
+    };
   } catch {
-    return null;
+    return { top_notes: [], heart_notes: [], base_notes: [], image_url: null };
   }
 }
+
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
   const { name, brand } = await request.json();
 
-  const empty = { image_url: null, top_notes: [], heart_notes: [], base_notes: [], description: null };
+  const empty = { image_url: null, top_notes: [] as string[], heart_notes: [] as string[], base_notes: [] as string[], description: null as string | null };
   if (!name || !brand) return NextResponse.json(empty);
 
-  // 1. Brand's official website (most accurate)
-  const brandResult = await tryBrandPage(name, brand).catch(() => null);
-  if (brandResult?.image_url) {
-    // Fill any missing notes from Fragrantica if brand page didn't have them
-    if (!brandResult.top_notes.length && !brandResult.heart_notes.length && !brandResult.base_notes.length) {
-      const frag = await tryFragrantica(name, brand).catch(() => null);
-      if (frag) {
-        brandResult.top_notes = frag.top_notes;
-        brandResult.heart_notes = frag.heart_notes;
-        brandResult.base_notes = frag.base_notes;
-        if (!brandResult.description) brandResult.description = frag.description;
-      }
-    }
-    return NextResponse.json(brandResult);
+  // Accumulate the best data found from each source
+  let image_url: string | null = null;
+  let description: string | null = null;
+  let top_notes: string[] = [];
+  let heart_notes: string[] = [];
+  let base_notes: string[] = [];
+
+  type Result = { image_url?: string | null; description?: string | null; top_notes?: string[]; heart_notes?: string[]; base_notes?: string[] };
+  function merge(r: Result | null) {
+    if (!r) return;
+    if (r.image_url && !image_url) image_url = r.image_url;
+    if (r.description && !description) description = r.description;
+    if (r.top_notes?.length && !top_notes.length) top_notes = r.top_notes;
+    if (r.heart_notes?.length && !heart_notes.length) heart_notes = r.heart_notes;
+    if (r.base_notes?.length && !base_notes.length) base_notes = r.base_notes;
   }
 
-  // 2. Fragrantica
-  const fragResult = await tryFragrantica(name, brand).catch(() => null);
-  if (fragResult) {
-    return NextResponse.json({
-      image_url: brandResult?.image_url ?? fragResult.image_url,
-      description: brandResult?.description ?? fragResult.description,
-      top_notes: brandResult?.top_notes?.length ? brandResult.top_notes : fragResult.top_notes,
-      heart_notes: brandResult?.heart_notes?.length ? brandResult.heart_notes : fragResult.heart_notes,
-      base_notes: brandResult?.base_notes?.length ? brandResult.base_notes : fragResult.base_notes,
-    });
+  // 1. Brand's official website
+  merge(await tryBrandPage(name, brand).catch(() => null));
+
+  // 2. Fragrantica (always run if notes are still missing)
+  if (!image_url || !top_notes.length) {
+    merge(await tryFragrantica(name, brand).catch(() => null));
   }
 
   // 3. Retail sites (ScentSplit, Twisted Lily, Lucky Scent, JoMashop, Harrods, Macy's, Bloomingdale's)
-  const retailResult = await tryRetailers(name, brand).catch(() => null);
-  if (retailResult?.image_url) {
-    return NextResponse.json({
-      image_url: retailResult.image_url,
-      description: retailResult.description,
-      top_notes: retailResult.top_notes,
-      heart_notes: retailResult.heart_notes,
-      base_notes: retailResult.base_notes,
-    });
+  if (!image_url || !top_notes.length) {
+    merge(await tryRetailers(name, brand).catch(() => null));
   }
 
-  // 4. AI-generated image URL as last resort
-  const fallback = await fallbackImage(name, brand);
-  return NextResponse.json({
-    ...empty,
-    image_url: fallback,
-    description: null,
-    top_notes: [],
-    heart_notes: [],
-    base_notes: [],
-  });
+  // 4. AI fallback — always fires when notes are still empty (web scraping misses most
+  //    brand pages that render notes as images or JS; GPT knows major fragrances)
+  if (!top_notes.length && !heart_notes.length && !base_notes.length) {
+    merge(await getAIFallback(name, brand, !image_url).catch(() => null));
+  } else if (!image_url) {
+    // Have notes but no image — ask AI just for the image
+    const ai = await getAIFallback(name, brand, true).catch(() => null);
+    if (ai?.image_url) image_url = ai.image_url;
+  }
+
+  return NextResponse.json({ image_url, description, top_notes, heart_notes, base_notes });
 }
