@@ -12,7 +12,7 @@ const FETCH_HEADERS = {
 const STOP_WORDS = new Set(["de", "du", "la", "le", "les", "the", "and", "for", "eau", "parfum", "toilette", "cologne"]);
 
 function tokenise(s: string): string[] {
-  return s.toLowerCase().split(/[\s\-_'./]+/).filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+  return s.toLowerCase().split(/[\s\-_'./|]+/).filter((w) => (w.length > 2 || /^\d+$/.test(w)) && !STOP_WORDS.has(w));
 }
 
 function scoreMatch(text: string, name: string, brand: string): number {
@@ -153,11 +153,11 @@ async function extractFromProductPage(url: string, name: string) {
   if (!res.ok) return null;
   const html = await res.text();
 
-  // Verify this page is actually about the right perfume
+  // Verify this page is actually about the right perfume — require ALL name tokens
   const nameWords = tokenise(name);
   const htmlLower = html.toLowerCase();
   const matchCount = nameWords.filter((w) => htmlLower.includes(w)).length;
-  if (nameWords.length > 1 && matchCount < Math.ceil(nameWords.length * 0.5)) return null;
+  if (nameWords.length > 1 && matchCount < nameWords.length) return null;
 
   // Image: prefer og:image (universal), fall back to first large product img
   const image_url =
@@ -180,24 +180,62 @@ async function extractFromProductPage(url: string, name: string) {
   return { image_url, description, top_notes, heart_notes, base_notes };
 }
 
+async function getProductUrl(domain: string, name: string, brand: string): Promise<string | null> {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      max_tokens: 100,
+      messages: [
+        {
+          role: "system",
+          content: "Return only the direct product page URL (https://...) for the specified perfume. Must point to the exact product, not a search or category page. Return 'unknown' if not confident.",
+        },
+        { role: "user", content: `Direct product URL for "${name}" by ${brand} on ${domain}` },
+      ],
+    });
+    const text = (completion.choices[0]?.message?.content ?? "").trim();
+    const m = text.match(/https?:\/\/[^\s"'<>]+/);
+    if (!m) return null;
+    try {
+      const hostname = new URL(m[0]).hostname;
+      if (!hostname.includes(domain.replace(/^www\./, ""))) return null;
+    } catch { return null; }
+    return m[0];
+  } catch {
+    return null;
+  }
+}
+
 async function tryBrandPage(name: string, brand: string) {
   const domain = await getBrandDomain(brand);
   if (!domain) return null;
 
   const { productUrl, imageUrl: searchImageUrl } = await brandSearch(domain, name, brand);
-  if (!productUrl) return null;
 
-  try {
-    const pageResult = await extractFromProductPage(productUrl, name);
-    if (!pageResult) return null;
-    // If the search page already had the image (Shopify embedded JSON), use it
-    if (!pageResult.image_url && searchImageUrl) pageResult.image_url = searchImageUrl;
-    return pageResult;
-  } catch {
-    // If product page fetch fails but we have an image from search, return that
-    if (searchImageUrl) return { image_url: searchImageUrl, description: null, top_notes: [], heart_notes: [], base_notes: [] };
-    return null;
+  // 1. Try URL found via search page
+  if (productUrl) {
+    try {
+      const pageResult = await extractFromProductPage(productUrl, name);
+      if (pageResult) {
+        if (!pageResult.image_url && searchImageUrl) pageResult.image_url = searchImageUrl;
+        return pageResult;
+      }
+    } catch { /* fall through */ }
   }
+
+  // 2. Try AI-generated direct product URL (good for well-known fragrances on Shopify stores)
+  const aiUrl = await getProductUrl(domain, name, brand).catch(() => null);
+  if (aiUrl && aiUrl !== productUrl) {
+    try {
+      const pageResult = await extractFromProductPage(aiUrl, name);
+      if (pageResult) {
+        if (!pageResult.image_url && searchImageUrl) pageResult.image_url = searchImageUrl;
+        return pageResult;
+      }
+    } catch { /* fall through */ }
+  }
+
+  return null;
 }
 
 // ── Fragrantica (secondary source) ───────────────────────────────────────────
