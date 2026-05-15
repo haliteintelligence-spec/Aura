@@ -70,65 +70,74 @@ async function getBrandDomain(brand: string): Promise<string | null> {
   }
 }
 
-// Shopify's predict/suggest API — works on all Shopify storefronts
-async function shopifySuggest(domain: string, name: string, brand: string): Promise<string | null> {
-  try {
-    const q = encodeURIComponent(name);
-    const res = await fetch(
-      `https://${domain}/search/suggest.json?q=${q}&resources[type]=product&resources[limit]=10`,
-      { headers: FETCH_HEADERS, signal: AbortSignal.timeout(4000) },
-    );
-    if (!res.ok) return null;
-    const json = await res.json();
-    const products: Array<{ url: string; title: string }> = json?.resources?.results?.products ?? [];
-    if (products.length === 0) return null;
-
-    const best = products
-      .map((p) => ({ url: p.url, score: scoreMatch(p.title, name, brand) }))
-      .sort((a, b) => b.score - a.score)[0];
-
-    if (best.score === 0) return null;
-    return `https://${domain}${best.url}`;
-  } catch {
-    return null;
-  }
-}
-
-// Generic site search — fallback for non-Shopify stores
-async function siteSearch(domain: string, name: string, brand: string): Promise<string | null> {
-  const paths = [
-    `/search?q=${encodeURIComponent(name)}`,
-    `/search?query=${encodeURIComponent(name)}`,
-    `/search?type=product&q=${encodeURIComponent(name)}`,
+// Fetch a brand search page and return { productUrl, imageUrl } for the best match.
+// Handles Shopify (embedded JSON in page) and generic HTML search pages.
+async function brandSearch(domain: string, name: string, brand: string): Promise<{ productUrl: string | null; imageUrl: string | null }> {
+  const q = encodeURIComponent(name);
+  const searchPaths = [
+    `/search?q=${q}&type=product`,
+    `/search?q=${q}`,
+    `/search?query=${q}`,
   ];
 
-  for (const path of paths) {
+  for (const path of searchPaths) {
     try {
       const res = await fetch(`https://${domain}${path}`, {
         headers: FETCH_HEADERS,
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(6000),
       });
       if (!res.ok) continue;
       const html = await res.text();
-      const productUrl = bestProductLink(html, domain, name, brand);
-      if (productUrl) return productUrl;
+
+      // ── Shopify path: parse embedded productVariants JSON ──────────────────
+      // Shopify search pages embed results as JSON inside a <script> tag.
+      // Extract: "title":"...", "url":"/...products/...", "image":{"src":"//..."}
+      const shopifyMatches = [...html.matchAll(/"title":"([^"]+)"[^{}]*?"url":"(\/[^"?]+)"[^{}]*?"image":\{"src":"(\/\/[^"]+)"/g)];
+      if (shopifyMatches.length > 0) {
+        const best = shopifyMatches
+          .map((m) => ({ title: m[1], path: m[2], src: m[3], score: scoreMatch(m[1], name, brand) }))
+          .sort((a, b) => b.score - a.score)[0];
+        if (best.score > 0) {
+          // Normalise: "//domain/path" → "https://domain/path"
+          const imageUrl = best.src.startsWith("//") ? `https:${best.src}` : best.src;
+          const productUrl = `https://${domain}${best.path.split("?")[0]}`;
+          return { productUrl, imageUrl };
+        }
+      }
+
+      // ── Generic path: score href links with product-like paths ────────────
+      // Supports locale prefixes: /en-us/products/..., /en-ae/products/...
+      const re = /href="((?:\/[a-z]{2}(?:-[a-z]{2})?)?\/(?:products?|fragrances?|fragrance|perfume|p\/)[^"?#]+)"/gi;
+      const seen = new Set<string>();
+      const entries: Array<{ link: string; score: number }> = [];
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(html)) !== null) {
+        const link = m[1];
+        if (seen.has(link)) continue;
+        seen.add(link);
+        entries.push({ link, score: scoreMatch(link, name, brand) });
+      }
+      entries.sort((a, b) => b.score - a.score);
+      const best = entries[0];
+      if (best && best.score > 0) {
+        return { productUrl: `https://${domain}${best.link}`, imageUrl: null };
+      }
     } catch {
       continue;
     }
   }
-  return null;
+  return { productUrl: null, imageUrl: null };
 }
 
 function bestProductLink(html: string, domain: string, name: string, brand: string): string | null {
-  // Match hrefs that look like product detail pages
-  const re = /href="(\/(?:products?|fragrances?|fragrance|shop|p|perfume|item)[^"?#]*(?:\.html?)?)"/gi;
+  const re = /href="((?:\/[a-z]{2}(?:-[a-z]{2})?)?\/(?:products?|fragrances?|fragrance|perfume|p\/)[^"?#]+)"/gi;
   const seen = new Set<string>();
   const entries: Array<{ link: string; score: number }> = [];
   let m: RegExpExecArray | null;
 
   while ((m = re.exec(html)) !== null) {
     const link = m[1];
-    if (seen.has(link) || link.endsWith("/") || link.split("/").length < 2) continue;
+    if (seen.has(link)) continue;
     seen.add(link);
     entries.push({ link, score: scoreMatch(link, name, brand) });
   }
@@ -175,17 +184,18 @@ async function tryBrandPage(name: string, brand: string) {
   const domain = await getBrandDomain(brand);
   if (!domain) return null;
 
-  // Try Shopify suggest (fast, structured JSON)
-  let productUrl = await shopifySuggest(domain, name, brand);
-
-  // Fall back to HTML site search
-  if (!productUrl) productUrl = await siteSearch(domain, name, brand);
-
+  const { productUrl, imageUrl: searchImageUrl } = await brandSearch(domain, name, brand);
   if (!productUrl) return null;
 
   try {
-    return await extractFromProductPage(productUrl, name);
+    const pageResult = await extractFromProductPage(productUrl, name);
+    if (!pageResult) return null;
+    // If the search page already had the image (Shopify embedded JSON), use it
+    if (!pageResult.image_url && searchImageUrl) pageResult.image_url = searchImageUrl;
+    return pageResult;
   } catch {
+    // If product page fetch fails but we have an image from search, return that
+    if (searchImageUrl) return { image_url: searchImageUrl, description: null, top_notes: [], heart_notes: [], base_notes: [] };
     return null;
   }
 }
