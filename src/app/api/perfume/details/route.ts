@@ -153,11 +153,17 @@ async function extractFromProductPage(url: string, name: string) {
   if (!res.ok) return null;
   const html = await res.text();
 
-  // Verify this page is actually about the right perfume — require ALL name tokens
+  // Verify this page is actually about the right perfume by checking the page title
+  // (body text is too noisy — e.g., "28" can appear in dates or related products)
   const nameWords = tokenise(name);
-  const htmlLower = html.toLowerCase();
-  const matchCount = nameWords.filter((w) => htmlLower.includes(w)).length;
-  if (nameWords.length > 1 && matchCount < nameWords.length) return null;
+  const pageTitle = (
+    html.match(/<meta\s+property="og:title"\s+content="([^"]+)"/i)?.[1] ??
+    html.match(/<meta\s+content="([^"]+)"\s+property="og:title"/i)?.[1] ??
+    html.match(/<title>([^<]+)<\/title>/i)?.[1] ??
+    ""
+  ).toLowerCase();
+  const titleMatchCount = nameWords.filter((w) => pageTitle.includes(w)).length;
+  if (nameWords.length > 1 && titleMatchCount < nameWords.length) return null;
 
   // Image: prefer og:image (universal), fall back to first large product img
   const image_url =
