@@ -5,59 +5,70 @@ export async function POST(request: NextRequest) {
   const { query } = await request.json();
 
   if (!query || query.length < 2) {
-    return NextResponse.json({ results: [] });
+    return NextResponse.json({ mode: "name", results: [] });
   }
 
   const completion = await openai.chat.completions.create({
     model: MODEL,
-    max_tokens: 2000,
+    max_tokens: 3000,
     response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
-        content: `You are a fragrance encyclopaedia with expert-level knowledge of every perfume house and their catalogues.
-Brand attribution is your highest priority — never guess or approximate a brand name.
-If you are not certain which brand made a fragrance, omit it rather than risk a wrong attribution.
-Common mistakes to avoid: confusing niche houses with similar names, attributing a fragrance to the wrong house in a conglomerate (e.g. Penhaligon's and Jo Malone are both British but entirely separate brands), or misremembering limited-edition or regional releases.
-Always respond with valid JSON only.`,
+        content: `You are a fragrance encyclopaedia. Given a search query, determine whether the user is typing a BRAND NAME or a PERFUME NAME, then return the appropriate catalogue.
+
+BRAND query (e.g. "Kayali", "Dior", "Jo Malone", "Tom Ford"):
+- Return ALL perfumes made by that brand that you know of, sorted strictly A-Z by name.
+- Include up to 60 perfumes. Omit descriptions and notes to save space.
+- Set mode = "brand" and include the canonical brand name.
+
+NAME query (e.g. "Vanilla", "Black Orchid", "Sauvage"):
+- Return perfumes whose name STARTS WITH the query fragment, across any brand, sorted strictly A-Z by name.
+- Up to 20 results. Include brief descriptions and key notes.
+- Set mode = "name".
+
+Respond with valid JSON only:
+{
+  "mode": "brand" | "name",
+  "brand": "Exact Official Brand Name",
+  "results": [
+    {
+      "name": "Exact fragrance name",
+      "brand": "Exact brand name",
+      "year": 2020,
+      "description": null,
+      "top_notes": [],
+      "heart_notes": [],
+      "base_notes": [],
+      "fragrance_family": [],
+      "gender": "unisex | masculine | feminine",
+      "image_url": null
+    }
+  ]
+}
+
+For brand mode, description/notes can be null/empty — they will be loaded on demand.
+Sort results strictly A-Z by name in all cases.
+Only include fragrances you are certain about.`,
       },
       {
         role: "user",
-        content: `Search query: "${query}"
-
-Return up to 8 real perfumes that best match this query.
-Before writing each result, verify in your knowledge: which brand actually made this specific fragrance?
-Do not confuse fragrances with similar names from different houses.
-
-Return a JSON object with a "results" array. Each item must have:
-{
-  "name": "Exact official fragrance name",
-  "brand": "Exact official brand/house name",
-  "year": 2010,
-  "description": "Brief evocative description (2-3 sentences)",
-  "top_notes": ["note1", "note2"],
-  "heart_notes": ["note1", "note2"],
-  "base_notes": ["note1", "note2"],
-  "fragrance_family": ["Floral", "Woody"],
-  "gender": "unisex | masculine | feminine",
-  "image_url": null
-}
-
-Only include fragrances you are certain about.`,
+        content: `Search query: "${query}"`,
       },
     ],
   });
 
-  const text = completion.choices[0]?.message?.content ?? '{"results":[]}';
+  const text = completion.choices[0]?.message?.content ?? '{"mode":"name","results":[]}';
 
-  let results = [];
   try {
     const parsed = JSON.parse(text);
-    results = Array.isArray(parsed) ? parsed : (parsed.results ?? []);
-    if (!Array.isArray(results)) results = [];
+    const results = Array.isArray(parsed.results) ? parsed.results : [];
+    return NextResponse.json({
+      mode: parsed.mode ?? "name",
+      brand: parsed.brand ?? "",
+      results,
+    });
   } catch {
-    results = [];
+    return NextResponse.json({ mode: "name", brand: "", results: [] });
   }
-
-  return NextResponse.json({ results });
 }

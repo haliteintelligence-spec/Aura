@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -33,6 +33,11 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
   const [saving, setSaving] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [seenKeys, setSeenKeys] = useState<Set<string>>(new Set());
+  // Catalog for client-side filtering (brand or name mode)
+  const [catalog, setCatalog] = useState<PerfumeSearchResult[]>([]);
+  const [catalogMode, setCatalogMode] = useState<"brand" | "name" | null>(null);
+  const [catalogBrand, setCatalogBrand] = useState("");
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Details state
   const [collection, setCollection] = useState<"closet" | "wishlist" | "owned_before">(initialCollection);
@@ -47,9 +52,14 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
 
   const selected = candidates[candidateIdx];
 
-  async function searchText(q: string) {
-    setQuery(q);
-    if (q.length < 2) { setSuggestions([]); return; }
+  // Returns true if any word in `name` starts with `filter`
+  function wordStartsWithFilter(name: string, filter: string): boolean {
+    if (!filter) return true;
+    const f = filter.toLowerCase();
+    return name.toLowerCase().split(/\s+/).some((w) => w.startsWith(f));
+  }
+
+  async function doSearch(q: string) {
     setSearching(true);
     try {
       const res = await fetch("/api/perfume/search", {
@@ -58,10 +68,61 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
         body: JSON.stringify({ query: q }),
       });
       const data = await res.json();
-      setSuggestions(data.results || []);
+      const mode: "brand" | "name" = data.mode ?? "name";
+      const brand: string = data.brand ?? "";
+      const results: PerfumeSearchResult[] = data.results ?? [];
+
+      setCatalogMode(mode);
+      setCatalogBrand(brand);
+      setCatalog(results);
+
+      // Apply any trailing filter text that's already been typed
+      let display = results;
+      if (mode === "brand" && brand) {
+        const filterText = q.slice(brand.length).trim();
+        display = results.filter((p) => wordStartsWithFilter(p.name, filterText));
+      }
+      setSuggestions(display.slice(0, 30));
+    } catch {
+      setSuggestions([]);
     } finally {
       setSearching(false);
     }
+  }
+
+  function handleInput(q: string) {
+    setQuery(q);
+
+    if (q.length < 2) {
+      setSuggestions([]);
+      setCatalog([]);
+      setCatalogMode(null);
+      setCatalogBrand("");
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+      return;
+    }
+
+    // ── Brand mode: user is still within the detected brand context ──
+    if (catalogMode === "brand" && catalogBrand && q.toLowerCase().startsWith(catalogBrand.toLowerCase())) {
+      const filterText = q.slice(catalogBrand.length).trim();
+      const filtered = catalog.filter((p) => wordStartsWithFilter(p.name, filterText));
+      setSuggestions(filtered.slice(0, 30));
+      return;
+    }
+
+    // ── Name mode: refine within cached name results ──
+    if (catalogMode === "name" && catalog.length > 0) {
+      const filtered = catalog.filter((p) => p.name.toLowerCase().startsWith(q.toLowerCase()));
+      if (filtered.length > 0) {
+        setSuggestions(filtered.slice(0, 20));
+        return;
+      }
+      // Fell through — query diverged; fetch fresh
+    }
+
+    // ── Debounce new API call ──
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => doSearch(q), 380);
   }
 
   async function selectSuggestion(p: PerfumeSearchResult) {
@@ -280,24 +341,33 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
           <input
             type="text"
             value={query}
-            onChange={(e) => searchText(e.target.value)}
+            onChange={(e) => handleInput(e.target.value)}
             placeholder="Search brand or fragrance name…"
             className="w-full h-11 px-4 pr-10 border border-input rounded-xl bg-background text-sm focus:outline-none focus:border-primary"
           />
           {searching && <Loader2 className="absolute right-3 top-3 w-4 h-4 animate-spin text-muted-foreground" />}
 
           {suggestions.length > 0 && (
-            <div className="absolute top-12 left-0 right-0 z-30 bg-card border border-border rounded-xl shadow-lg overflow-hidden">
-              {suggestions.map((s, i) => (
-                <button
-                  key={i}
-                  onClick={() => selectSuggestion(s)}
-                  className="w-full text-left px-4 py-3 hover:bg-muted transition-colors border-b border-border last:border-0"
-                >
-                  <p className="text-sm font-medium">{s.name}</p>
-                  <p className="text-xs text-muted-foreground">{s.brand} {s.year ? `· ${s.year}` : ""}</p>
-                </button>
-              ))}
+            <div className="absolute top-12 left-0 right-0 z-30 bg-card border border-border rounded-xl shadow-lg overflow-hidden flex flex-col">
+              {catalogMode === "brand" && catalogBrand && (
+                <div className="px-4 py-2 bg-muted/60 border-b border-border">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {catalogBrand} · {suggestions.length} result{suggestions.length !== 1 ? "s" : ""}
+                  </p>
+                </div>
+              )}
+              <div className="overflow-y-auto max-h-64">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    onClick={() => selectSuggestion(s)}
+                    className="w-full text-left px-4 py-2.5 hover:bg-muted transition-colors border-b border-border last:border-0"
+                  >
+                    <p className="text-sm font-medium leading-snug">{s.name}</p>
+                    <p className="text-xs text-muted-foreground">{s.brand}{s.year ? ` · ${s.year}` : ""}</p>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
