@@ -25,18 +25,19 @@ interface WizardProps {
 export function CollectionEntryWizard({ initialCollection = "closet" }: WizardProps) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("find");
-  const [query, setQuery] = useState("");
+  const [brandQuery, setBrandQuery] = useState("");
+  const [nameQuery, setNameQuery] = useState("");
   const [suggestions, setSuggestions] = useState<PerfumeSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [noResults, setNoResults] = useState(false);
   const [candidates, setCandidates] = useState<PerfumeSearchResult[]>([]);
   const [candidateIdx, setCandidateIdx] = useState(0);
   const [saving, setSaving] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [seenKeys, setSeenKeys] = useState<Set<string>>(new Set());
-  // Catalog for client-side filtering (brand or name mode)
+  // Cached brand catalogue for client-side filtering
   const [catalog, setCatalog] = useState<PerfumeSearchResult[]>([]);
-  const [catalogMode, setCatalogMode] = useState<"brand" | "name" | null>(null);
-  const [catalogBrand, setCatalogBrand] = useState("");
+  const [catalogBrand, setCatalogBrand] = useState(""); // which brand the catalog covers
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Details state
@@ -52,37 +53,47 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
 
   const selected = candidates[candidateIdx];
 
-  // Returns true if any word in `name` starts with `filter`
-  function wordStartsWithFilter(name: string, filter: string): boolean {
+  // True if any word in `perfumeName` starts with `filter`
+  function anyWordStartsWith(perfumeName: string, filter: string): boolean {
     if (!filter) return true;
     const f = filter.toLowerCase();
-    return name.toLowerCase().split(/\s+/).some((w) => w.startsWith(f));
+    return perfumeName.toLowerCase().split(/\s+/).some((w) => w.startsWith(f));
   }
 
-  async function doSearch(q: string) {
+  function applyNameFilter(items: PerfumeSearchResult[], nameFilter: string): PerfumeSearchResult[] {
+    if (!nameFilter) return items;
+    return items.filter((p) => anyWordStartsWith(p.name, nameFilter));
+  }
+
+  async function doSearch(brand: string, name: string) {
     setSearching(true);
+    setNoResults(false);
     try {
+      const body: Record<string, string> = {};
+      if (brand) body.brand = brand;
+      if (name) body.name = name;
+
       const res = await fetch("/api/perfume/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
-      const mode: "brand" | "name" = data.mode ?? "name";
-      const brand: string = data.brand ?? "";
       const results: PerfumeSearchResult[] = data.results ?? [];
 
-      setCatalogMode(mode);
-      setCatalogBrand(brand);
-      setCatalog(results);
-
-      // Apply any trailing filter text that's already been typed
-      let display = results;
-      if (mode === "brand" && brand) {
-        const filterText = q.slice(brand.length).trim();
-        display = results.filter((p) => wordStartsWithFilter(p.name, filterText));
+      // Cache full brand catalogue for local filtering
+      if (brand && !name) {
+        const canonical = (data.brand as string) || brand;
+        setCatalog(results);
+        setCatalogBrand(canonical.toLowerCase());
       }
-      setSuggestions(display.slice(0, 30));
+
+      if (results.length === 0 && brand && name) {
+        setNoResults(true);
+        setSuggestions([]);
+      } else {
+        setSuggestions(results.slice(0, 30));
+      }
     } catch {
       setSuggestions([]);
     } finally {
@@ -90,39 +101,51 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
     }
   }
 
-  function handleInput(q: string) {
-    setQuery(q);
-
-    if (q.length < 2) {
-      setSuggestions([]);
-      setCatalog([]);
-      setCatalogMode(null);
-      setCatalogBrand("");
-      if (searchTimer.current) clearTimeout(searchTimer.current);
-      return;
-    }
-
-    // ── Brand mode: user is still within the detected brand context ──
-    if (catalogMode === "brand" && catalogBrand && q.toLowerCase().startsWith(catalogBrand.toLowerCase())) {
-      const filterText = q.slice(catalogBrand.length).trim();
-      const filtered = catalog.filter((p) => wordStartsWithFilter(p.name, filterText));
-      setSuggestions(filtered.slice(0, 30));
-      return;
-    }
-
-    // ── Name mode: refine within cached name results ──
-    if (catalogMode === "name" && catalog.length > 0) {
-      const filtered = catalog.filter((p) => p.name.toLowerCase().startsWith(q.toLowerCase()));
-      if (filtered.length > 0) {
-        setSuggestions(filtered.slice(0, 20));
-        return;
-      }
-      // Fell through — query diverged; fetch fresh
-    }
-
-    // ── Debounce new API call ──
+  function scheduleSearch(brand: string, name: string) {
     if (searchTimer.current) clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => doSearch(q), 380);
+    searchTimer.current = setTimeout(() => doSearch(brand, name), 380);
+  }
+
+  function handleBrandChange(brand: string) {
+    setBrandQuery(brand);
+    setNoResults(false);
+
+    // Reset catalogue when brand changes substantially
+    if (!brand.toLowerCase().startsWith(catalogBrand.slice(0, brand.length))) {
+      setCatalog([]);
+      setCatalogBrand("");
+    }
+
+    if (brand.length < 2) {
+      if (!nameQuery) setSuggestions([]);
+      return;
+    }
+
+    // If we already have a catalogue for this brand, filter locally
+    if (catalog.length > 0 && brand.toLowerCase() === catalogBrand) {
+      setSuggestions(applyNameFilter(catalog, nameQuery).slice(0, 30));
+      return;
+    }
+
+    scheduleSearch(brand, nameQuery);
+  }
+
+  function handleNameChange(name: string) {
+    setNameQuery(name);
+    setNoResults(false);
+
+    // Brand catalogue loaded — filter locally, no API call
+    if (catalog.length > 0 && brandQuery.toLowerCase() === catalogBrand) {
+      setSuggestions(applyNameFilter(catalog, name).slice(0, 30));
+      return;
+    }
+
+    if (name.length < 2) {
+      if (!brandQuery) setSuggestions([]);
+      return;
+    }
+
+    scheduleSearch(brandQuery, name);
   }
 
   async function selectSuggestion(p: PerfumeSearchResult) {
@@ -133,7 +156,8 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
     setSeenKeys(initialSeen);
     setCandidateIdx(0);
     setSuggestions([]);
-    setQuery(`${p.brand} ${p.name}`);
+    setBrandQuery(p.brand);
+    setNameQuery(p.name);
     setStep("confirm");
     // Enrich selected perfume with Fragrantica photo + notes in background
     try {
@@ -167,7 +191,7 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
         const res = await fetch("/api/perfume/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query }),
+          body: JSON.stringify({ brand: brandQuery || undefined, name: nameQuery || undefined }),
         });
         const data = await res.json();
         fresh = data.results || [];
@@ -332,31 +356,58 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
     return (
       <div className="space-y-6 p-4">
         <div>
-          <h2 className="font-display text-xl mb-1">Find a Perfume</h2>
-          <p className="text-sm text-muted-foreground">Search by name or take a photo of the bottle</p>
+          <h2 className="font-display text-xl mb-1">Find a Fragrance</h2>
+          <p className="text-sm text-muted-foreground">Search by brand, name, or both — then take a photo</p>
         </div>
 
-        {/* Text search */}
-        <div className="relative">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => handleInput(e.target.value)}
-            placeholder="Search brand or fragrance name…"
-            className="w-full h-11 px-4 pr-10 border border-input rounded-xl bg-background text-sm focus:outline-none focus:border-primary"
-          />
-          {searching && <Loader2 className="absolute right-3 top-3 w-4 h-4 animate-spin text-muted-foreground" />}
+        {/* Two search boxes */}
+        <div className="space-y-2">
+          {/* Brand */}
+          <div className="relative">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground px-1">Brand</label>
+            <input
+              type="text"
+              value={brandQuery}
+              onChange={(e) => handleBrandChange(e.target.value)}
+              placeholder="e.g. Kayali, Dior, Chanel…"
+              className="w-full h-11 px-4 border border-input rounded-xl bg-background text-sm focus:outline-none focus:border-primary mt-1"
+            />
+          </div>
 
+          {/* Fragrance name */}
+          <div className="relative">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground px-1">Fragrance name</label>
+            <div className="relative mt-1">
+              <input
+                type="text"
+                value={nameQuery}
+                onChange={(e) => handleNameChange(e.target.value)}
+                placeholder="e.g. Vanilla 28, Sauvage…"
+                className="w-full h-11 px-4 pr-10 border border-input rounded-xl bg-background text-sm focus:outline-none focus:border-primary"
+              />
+              {searching && <Loader2 className="absolute right-3 top-3 w-4 h-4 animate-spin text-muted-foreground" />}
+            </div>
+          </div>
+
+          {/* No-results prompt */}
+          {noResults && (
+            <p className="text-sm text-destructive text-center pt-1">
+              No perfume found — please check the brand and name and try again.
+            </p>
+          )}
+
+          {/* Suggestions (flow naturally below both boxes) */}
           {suggestions.length > 0 && (
-            <div className="absolute top-12 left-0 right-0 z-30 bg-card border border-border rounded-xl shadow-lg overflow-hidden flex flex-col">
-              {catalogMode === "brand" && catalogBrand && (
+            <div className="bg-card border border-border rounded-xl shadow-lg overflow-hidden">
+              {/* Header shows which brand catalogue is loaded */}
+              {catalog.length > 0 && brandQuery && (
                 <div className="px-4 py-2 bg-muted/60 border-b border-border">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {catalogBrand} · {suggestions.length} result{suggestions.length !== 1 ? "s" : ""}
+                    {brandQuery} · {suggestions.length} result{suggestions.length !== 1 ? "s" : ""}
                   </p>
                 </div>
               )}
-              <div className="overflow-y-auto max-h-64">
+              <div className="overflow-y-auto max-h-60">
                 {suggestions.map((s, i) => (
                   <button
                     key={i}

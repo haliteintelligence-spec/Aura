@@ -130,7 +130,8 @@ async function brandSearch(domain: string, name: string, brand: string): Promise
 }
 
 function bestProductLink(html: string, domain: string, name: string, brand: string): string | null {
-  const re = /href="((?:\/[a-z]{2}(?:-[a-z]{2})?)?\/(?:products?|fragrances?|fragrance|perfume|p\/)[^"?#]+)"/gi;
+  // Broad pattern covers brand sites, Shopify, JoMashop (/catalog), Macy's/Bloomingdale's (/shop/product)
+  const re = /href="((?:\/[a-z]{2}(?:-[a-z]{2})?)?\/(?:products?|fragrances?|fragrance|perfume|catalog(?:\/product)?|shop\/product|p\/)[^"?#]+)"/gi;
   const seen = new Set<string>();
   const entries: Array<{ link: string; score: number }> = [];
   let m: RegExpExecArray | null;
@@ -318,6 +319,43 @@ async function tryFragrantica(name: string, brand: string) {
   return { image_url, top_notes, heart_notes, base_notes, description };
 }
 
+// ── Retail site fallbacks ─────────────────────────────────────────────────────
+
+const RETAILERS = [
+  { domain: "scentsplit.com",        searchPath: "/search?type=product&q=" },
+  { domain: "twistedlily.com",       searchPath: "/search?type=product&q=" },
+  { domain: "luckyscent.com",        searchPath: "/search.aspx?term=" },
+  { domain: "jomashop.com",          searchPath: "/search?query=" },
+  { domain: "www.harrods.com",       searchPath: "/en-gb/search?query=" },
+  { domain: "www.macys.com",         searchPath: "/shop/catalog/search.ognc?keyword=" },
+  { domain: "www.bloomingdales.com", searchPath: "/shop/search?keyword=" },
+];
+
+async function tryRetailer(domain: string, searchPath: string, name: string, brand: string) {
+  const q = encodeURIComponent(`${brand} ${name}`);
+  try {
+    const res = await fetch(`https://${domain}${searchPath}${q}`, {
+      headers: FETCH_HEADERS,
+      signal: AbortSignal.timeout(7000),
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const productUrl = bestProductLink(html, domain, name, brand);
+    if (!productUrl) return null;
+    return await extractFromProductPage(productUrl, name);
+  } catch {
+    return null;
+  }
+}
+
+async function tryRetailers(name: string, brand: string) {
+  for (const { domain, searchPath } of RETAILERS) {
+    const result = await tryRetailer(domain, searchPath, name, brand).catch(() => null);
+    if (result?.image_url) return result;
+  }
+  return null;
+}
+
 // ── Other image fallbacks ─────────────────────────────────────────────────────
 
 async function fallbackImage(name: string, brand: string): Promise<string | null> {
@@ -380,14 +418,26 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // 3. AI-generated image URL as last resort
+  // 3. Retail sites (ScentSplit, Twisted Lily, Lucky Scent, JoMashop, Harrods, Macy's, Bloomingdale's)
+  const retailResult = await tryRetailers(name, brand).catch(() => null);
+  if (retailResult?.image_url) {
+    return NextResponse.json({
+      image_url: retailResult.image_url,
+      description: retailResult.description,
+      top_notes: retailResult.top_notes,
+      heart_notes: retailResult.heart_notes,
+      base_notes: retailResult.base_notes,
+    });
+  }
+
+  // 4. AI-generated image URL as last resort
   const fallback = await fallbackImage(name, brand);
   return NextResponse.json({
     ...empty,
-    image_url: brandResult?.image_url ?? fallback,
-    description: brandResult?.description ?? null,
-    top_notes: brandResult?.top_notes ?? [],
-    heart_notes: brandResult?.heart_notes ?? [],
-    base_notes: brandResult?.base_notes ?? [],
+    image_url: fallback,
+    description: null,
+    top_notes: [],
+    heart_notes: [],
+    base_notes: [],
   });
 }
