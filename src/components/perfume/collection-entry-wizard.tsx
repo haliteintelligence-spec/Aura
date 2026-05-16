@@ -47,6 +47,7 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
   const [seasons, setSeasons] = useState<string[]>([]);
   const [occasions, setOccasions] = useState<string[]>([]);
   const [rating, setRating] = useState(0);
+  const [loadingDetails, setLoadingDetails] = useState(false);
   const [loadingPrices, setLoadingPrices] = useState(false);
   const [prices, setPrices] = useState<Record<string, { min: number; max: number }>>({});
   const [userPhotoFile, setUserPhotoFile] = useState<File | null>(null);
@@ -194,7 +195,8 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
     setBrandQuery(p.brand);
     setNameQuery(p.name);
     setStep("confirm");
-    // Enrich selected perfume with Fragrantica photo + notes in background
+    // Enrich selected perfume with photo + notes in background
+    setLoadingDetails(true);
     try {
       const res = await fetch("/api/perfume/details", {
         method: "POST",
@@ -210,6 +212,7 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
       if (data.description) enriched.description = data.description;
       setCandidates((prev) => [enriched, ...prev.slice(1)]);
     } catch {}
+    finally { setLoadingDetails(false); }
   }
 
   async function suggestMore() {
@@ -496,9 +499,11 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
         <h2 className="font-display text-xl">Is this the one?</h2>
 
         <div className="bg-card border border-border rounded-2xl overflow-hidden">
-          <div className="aspect-square max-h-56 bg-plum-50 flex items-center justify-center">
+          <div className="aspect-square max-h-56 bg-plum-50 flex items-center justify-center relative">
             {proxyImageUrl(selected.image_url) ? (
               <Image src={proxyImageUrl(selected.image_url)!} alt={selected.name} width={200} height={200} className="object-contain" unoptimized />
+            ) : loadingDetails ? (
+              <Loader2 className="w-10 h-10 text-plum-300 animate-spin" />
             ) : (
               <Droplets className="w-16 h-16 text-plum-300" />
             )}
@@ -528,6 +533,11 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
                   <span className="text-xs text-muted-foreground w-12">Base</span>
                   {selected.base_notes.map((n) => <Badge key={n} variant="secondary" className="text-xs">{n}</Badge>)}
                 </div>
+              )}
+              {loadingDetails && !selected.top_notes?.length && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Loading notes…
+                </p>
               )}
             </div>
           </div>
