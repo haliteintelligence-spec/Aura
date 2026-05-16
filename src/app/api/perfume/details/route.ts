@@ -476,11 +476,11 @@ async function getAIFallback(name: string, brand: string) {
       messages: [
         {
           role: "system",
-          content: "Return the fragrance pyramid notes (top, heart, base) AND a direct bottle image URL for the given perfume. Only include what you are certain about. Do not use the term 'Oriental' — use 'Resinous' instead.",
+          content: "You are a fragrance expert. Always return the scent notes for the requested perfume. Never return empty arrays — use your best knowledge. Do not use the term 'Oriental', use 'Resinous' instead. Return valid JSON only.",
         },
         {
           role: "user",
-          content: `"${name}" by ${brand}. Return JSON: { "top_notes": ["note"], "heart_notes": ["note"], "base_notes": ["note"], "image_url": "https://..." or null }`,
+          content: `Return the fragrance pyramid for "${name}" by ${brand}. JSON format: { "top_notes": ["note1", "note2"], "heart_notes": ["note1", "note2"], "base_notes": ["note1", "note2"], "image_url": null }`,
         },
       ],
     });
