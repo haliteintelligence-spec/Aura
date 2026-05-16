@@ -129,17 +129,17 @@ const FRAGRANCE_KEYWORDS = /\b(fragrance|perfume|parfum|scent|cologne|eau\s*de|e
 async function isFragranceDomain(domain: string): Promise<boolean> {
   try {
     const res = await fetch(`https://${domain}/products.json?limit=10`, { headers: FETCH_HEADERS, signal: AbortSignal.timeout(5000) });
-    if (res.ok) {
-      const json = await res.json() as { products?: Array<{ title: string; body_html?: string; product_type?: string }> };
-      const products = json.products ?? [];
-      if (products.length > 0) return products.some((p) =>
-        FRAGRANCE_KEYWORDS.test(p.title) || FRAGRANCE_KEYWORDS.test(p.product_type ?? "") || FRAGRANCE_KEYWORDS.test((p.body_html ?? "").slice(0, 300))
-      );
-    }
-  } catch { /* fall through */ }
+    if (!res.ok) throw new Error("no products.json");
+    const json = await res.json() as { products?: Array<{ title: string; body_html?: string; product_type?: string }> };
+    const products = json.products ?? [];
+    if (products.length === 0) throw new Error("empty products.json");
+    return products.some((p) =>
+      FRAGRANCE_KEYWORDS.test(p.title) || FRAGRANCE_KEYWORDS.test(p.product_type ?? "") || FRAGRANCE_KEYWORDS.test((p.body_html ?? "").slice(0, 300))
+    );
+  } catch { /* fall through to homepage */ }
   try {
     const res = await fetch(`https://${domain}`, { headers: FETCH_HEADERS, signal: AbortSignal.timeout(5000) });
-    if (res.ok) return FRAGRANCE_KEYWORDS.test((await res.text()).slice(0, 8000));
+    if (res.ok) return FRAGRANCE_KEYWORDS.test((await res.text()).slice(0, 100000));
   } catch { /* fall through */ }
   return false;
 }

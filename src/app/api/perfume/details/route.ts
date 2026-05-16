@@ -50,11 +50,11 @@ function extractNotesFromText(text: string, labels: string[]): string[] {
     const match = text.match(pattern);
     if (match?.[1]) {
       // Stop at the next notes section label to avoid bleeding into adjacent sections
-      const section = match[1].split(/\s*(?:top|heart|middle|base)\s*notes?\s*[:\-]/i)[0];
+      const section = match[1].split(/\s*(?:top|heart|middle|base)\s*notes?\s*[:\-]?/i)[0];
       const notes = section
-        .split(/[,;|•·]+/)
+        .split(/[,;|•·]+|\s+-\s+/)
         .map((s) => s.replace(/<[^>]+>/g, "").trim())
-        .filter((s) => isValidNote(s) && !/^(and|the|a|an|with|notes?)$/i.test(s));
+        .filter((s) => isValidNote(s) && !/^(and|the|a|an|of|from|with|in|notes?)$/i.test(s) && !/^(of|from|with|in)\s/i.test(s));
       if (notes.length > 0) return notes.slice(0, 8);
     }
   }
@@ -75,28 +75,28 @@ function stripHtml(html: string): string {
 const FRAGRANCE_KEYWORDS = /\b(fragrance|perfume|parfum|scent|cologne|eau\s*de|edp|edt|notes?|olfact|ml\b|spray|mist|body\s*oil)/i;
 
 async function isFragranceDomain(domain: string): Promise<boolean> {
-  // Quick check: fetch /products.json and see if any product titles/descriptions mention fragrance
+  // Try Shopify products.json first; fall back to homepage keyword scan for non-Shopify sites
   try {
     const res = await fetch(`https://${domain}/products.json?limit=10`, {
       headers: FETCH_HEADERS,
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return false;
+    if (!res.ok) throw new Error("no products.json");
     const json = await res.json() as { products?: Array<{ title: string; body_html?: string; product_type?: string }> };
     const products = json.products ?? [];
-    if (products.length === 0) return false;
+    if (products.length === 0) throw new Error("empty products.json");
     return products.some((p) =>
       FRAGRANCE_KEYWORDS.test(p.title) ||
       FRAGRANCE_KEYWORDS.test(p.product_type ?? "") ||
       FRAGRANCE_KEYWORDS.test((p.body_html ?? "").slice(0, 300))
     );
   } catch {
-    // No products.json — try homepage for fragrance keywords
+    // products.json unavailable or non-Shopify — scan homepage for fragrance keywords
     try {
       const res = await fetch(`https://${domain}`, { headers: FETCH_HEADERS, signal: AbortSignal.timeout(5000) });
       if (!res.ok) return false;
       const text = await res.text();
-      return FRAGRANCE_KEYWORDS.test(text.slice(0, 8000));
+      return FRAGRANCE_KEYWORDS.test(text.slice(0, 100000));
     } catch {
       return false;
     }
@@ -137,6 +137,8 @@ async function brandSearch(domain: string, name: string, brand: string): Promise
     `/search?q=${q}&type=product`,
     `/search?q=${q}`,
     `/search?query=${q}`,
+    `/?s=${q}&post_type=product`,
+    `/shop/?s=${q}&post_type=product`,
   ];
 
   for (const path of searchPaths) {
@@ -165,18 +167,25 @@ async function brandSearch(domain: string, name: string, brand: string): Promise
       }
 
       // ── Generic path: score href links with product-like paths ────────────
-      // Supports locale prefixes: /en-us/products/..., /en-ae/products/...
-      const re = /href="((?:\/[a-z]{2}(?:-[a-z]{2})?)?\/(?:products?|fragrances?|fragrance|perfume|p\/)[^"?#]+)"/gi;
+      // Handles relative (/product/...) and absolute (https://domain/product/...) hrefs
+      const escapedDomain = domain.replace(/\./g, "\\.");
+      const re = new RegExp(
+        `href="((?:https?://${escapedDomain})?(?:/[a-z]{2}(?:-[a-z]{2})?)?/(?:products?|fragrances?|fragrance|perfume|p/)[^"?#]+)"`,
+        "gi"
+      );
       const seen = new Set<string>();
       const entries: Array<{ link: string; score: number }> = [];
       let m: RegExpExecArray | null;
       while ((m = re.exec(html)) !== null) {
-        const link = m[1];
+        // Normalise to a relative path for scoring and dedup
+        const raw = m[1];
+        const link = raw.startsWith("http") ? raw.replace(/^https?:\/\/[^/]+/, "") : raw;
         if (seen.has(link)) continue;
         seen.add(link);
         entries.push({ link, score: scoreMatch(link, name, brand) });
       }
-      entries.sort((a, b) => b.score - a.score);
+      // Sort by score DESC, then URL length ASC (shorter = main product page, not a size variant)
+      entries.sort((a, b) => b.score - a.score || a.link.length - b.link.length);
       const best = entries[0];
       if (best && best.score > 0) {
         return { productUrl: `https://${domain}${best.link}`, imageUrl: null };
