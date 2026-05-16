@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai, MODEL } from "@/lib/openai";
+import { createClient } from "@/lib/supabase/server";
 import type { PerfumeSearchResult } from "@/lib/types";
 
 // ── Shared helpers (mirror of details/route.ts) ───────────────────────────────
@@ -210,6 +211,31 @@ async function searchWithGPT(brand?: string, name?: string): Promise<{ brand: st
   }
 }
 
+// ── Database search ───────────────────────────────────────────────────────────
+
+async function searchDatabase(brand?: string, name?: string): Promise<PerfumeSearchResult[]> {
+  try {
+    const supabase = await createClient();
+    let query = supabase
+      .from("perfumes")
+      .select("name,brand,year,description,top_notes,heart_notes,base_notes,fragrance_family,gender,image_url,prices")
+      .limit(40);
+
+    if (brand && name) {
+      query = query.ilike("brand", `%${brand}%`).ilike("name", `%${name}%`);
+    } else if (brand) {
+      query = query.ilike("brand", brand);
+    } else if (name) {
+      query = query.ilike("name", `%${name}%`);
+    }
+
+    const { data } = await query;
+    return (data ?? []) as PerfumeSearchResult[];
+  } catch {
+    return [];
+  }
+}
+
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 function normaliseResults(results: PerfumeSearchResult[]): PerfumeSearchResult[] {
@@ -234,13 +260,24 @@ export async function POST(request: NextRequest) {
   const b = hasBrand ? brand.trim() : undefined;
   const n = hasName ? name.trim() : undefined;
 
-  // 1. Ask GPT first
+  // 1. Database first — fast, real data, no API cost
+  const dbResults = await searchDatabase(b, n);
+  if (dbResults.length >= 3) {
+    return NextResponse.json({ brand: b ?? dbResults[0]?.brand ?? "", results: normaliseResults(dbResults) });
+  }
+
+  // 2. GPT for anything the database doesn't have enough of
   const gpt = await searchWithGPT(b, n);
 
-  // 2. If GPT came up empty AND both brand + name were given, go to the brand's
-  //    actual website — this catches newer releases and niche perfumes that
-  //    aren't in GPT's training data.
-  if (gpt.results.length === 0 && hasBrand && hasName) {
+  // Merge: DB results first (they have real data), then GPT results for anything new
+  const dbNames = new Set(dbResults.map((r) => `${r.brand}||${r.name}`.toLowerCase()));
+  const merged = [
+    ...dbResults,
+    ...gpt.results.filter((r) => !dbNames.has(`${r.brand}||${r.name}`.toLowerCase())),
+  ];
+
+  // 3. Brand site scrape as last resort if still empty
+  if (merged.length === 0 && hasBrand && hasName) {
     const domain = await getBrandDomain(b!).catch(() => null);
     if (domain) {
       const brandResults = await searchBrandSite(domain, n!, b!).catch(() => [] as PerfumeSearchResult[]);
@@ -250,5 +287,5 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ brand: gpt.brand || b || "", results: normaliseResults(gpt.results) });
+  return NextResponse.json({ brand: gpt.brand || b || "", results: normaliseResults(merged) });
 }
