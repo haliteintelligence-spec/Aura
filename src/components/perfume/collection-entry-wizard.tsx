@@ -50,6 +50,8 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [loadingPrices, setLoadingPrices] = useState(false);
   const [prices, setPrices] = useState<Record<string, { min: number; max: number }>>({});
+  const [customMl, setCustomMl] = useState("");
+  const customMlTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [userPhotoFile, setUserPhotoFile] = useState<File | null>(null);
 
   const selected = candidates[candidateIdx];
@@ -284,12 +286,18 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
     }
   }
 
+  function resolvedSizes(sizes: string[], ml: string): string[] {
+    return sizes.map((s) => (s === "other" && ml ? `${ml}ml` : s)).filter((s) => s !== "other");
+  }
+
   function toggleSize(size: string) {
     const next = selectedSizes.includes(size)
       ? selectedSizes.filter((s) => s !== size)
       : [...selectedSizes, size];
     setSelectedSizes(next);
-    fetchPrices(next);
+    if (size === "other" && !next.includes("other")) setCustomMl("");
+    const forPrice = resolvedSizes(next, customMl);
+    if (forPrice.length > 0) fetchPrices(forPrice);
   }
 
   async function save() {
@@ -355,7 +363,8 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
 
       if (perfumeErr) throw perfumeErr;
 
-      const sizesPrices = selectedSizes.map((s) => ({
+      const effectiveSizes = resolvedSizes(selectedSizes, customMl);
+      const sizesPrices = effectiveSizes.map((s) => ({
         size: s,
         price_min: prices[s]?.min ?? null,
         price_max: prices[s]?.max ?? null,
@@ -366,7 +375,7 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
         user_id: user.id,
         perfume_id: perfumeData.id,
         collection_type: collection,
-        bottle_sizes: selectedSizes,
+        bottle_sizes: effectiveSizes,
         size_prices: sizesPrices,
         occasions,
         seasons,
@@ -619,11 +628,37 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
               </button>
             ))}
           </div>
+
+          {/* Custom ml input when Other is selected */}
+          {selectedSizes.includes("other") && (
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                placeholder="e.g. 75"
+                value={customMl}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, "");
+                  setCustomMl(val);
+                  if (customMlTimer.current) clearTimeout(customMlTimer.current);
+                  if (val && parseInt(val) > 0) {
+                    customMlTimer.current = setTimeout(() => {
+                      fetchPrices(resolvedSizes(selectedSizes, val));
+                    }, 500);
+                  }
+                }}
+                className="w-24 h-9 px-3 border border-input rounded-lg bg-background text-sm focus:outline-none focus:border-primary"
+              />
+              <span className="text-sm text-muted-foreground">ml</span>
+            </div>
+          )}
+
           {loadingPrices && <p className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Fetching prices…</p>}
           {Object.keys(prices).length > 0 && (
             <div className="space-y-1">
-              {selectedSizes.filter((s) => prices[s]).map((s) => {
-                const label = BOTTLE_SIZES.find((b) => b.value === s)?.label;
+              {resolvedSizes(selectedSizes, customMl).filter((s) => prices[s]).map((s) => {
+                const label = BOTTLE_SIZES.find((b) => b.value === s)?.label ?? s;
                 const p = prices[s];
                 return (
                   <p key={s} className="text-xs text-muted-foreground">
