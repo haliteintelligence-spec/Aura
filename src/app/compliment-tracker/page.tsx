@@ -8,10 +8,10 @@ import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { cn, proxyImageUrl } from "@/lib/utils";
 import type { CollectionItem, ComplimentEntry } from "@/lib/types";
-import { MessageCircleHeart, Plus, Loader2, Droplets, Trash2 } from "lucide-react";
+import { MessageCircleHeart, Plus, Loader2, Droplets, Trash2, Pencil, BookOpen } from "lucide-react";
 import Image from "next/image";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 
 interface ComplimentGroup {
   key: string;
@@ -20,18 +20,30 @@ interface ComplimentGroup {
   brand?: string;
   count: number;
   isCombo: boolean;
-  sourceIds: string[]; // latest set of collection_item_ids for deletion ref
+}
+
+interface JournalEntry {
+  id: string;
+  collection_item_ids: string[];
+  date: string;
+  names: string[];
 }
 
 export default function ComplimentTrackerPage() {
   const { user } = useUser();
   const [groups, setGroups] = useState<ComplimentGroup[]>([]);
+  const [manualEntries, setManualEntries] = useState<ComplimentEntry[]>([]);
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
   const [closetItems, setClosetItems] = useState<CollectionItem[]>([]);
-  const [addOpen, setAddOpen] = useState(false);
-  const [addIds, setAddIds] = useState<string[]>([]);
+
+  // Sheet state — null = add mode, ComplimentEntry = edit mode
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<ComplimentEntry | null>(null);
+  const [sheetIds, setSheetIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -39,7 +51,6 @@ export default function ComplimentTrackerPage() {
     try {
       const supabase = createClient();
 
-      // Load closet items for id→name/image mapping and manual entry selector
       const { data: items } = await supabase
         .from("collection_items")
         .select("*, perfume:perfumes(*)")
@@ -50,20 +61,29 @@ export default function ComplimentTrackerPage() {
 
       const idToItem = Object.fromEntries(closet.map((i) => [i.id, i]));
 
-      // Journal-derived compliments
       const { data: logs } = await supabase
         .from("scent_logs")
-        .select("id, collection_item_ids")
+        .select("id, collection_item_ids, date")
         .eq("user_id", user.id)
-        .eq("got_compliment", true);
+        .eq("got_compliment", true)
+        .order("date", { ascending: false });
 
-      // Manual compliment entries
       const { data: manual } = await supabase
         .from("compliment_entries")
         .select("*")
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .order("date", { ascending: false });
 
-      // Build aggregation map: sorted-name-key → count
+      const rawManual = (manual as ComplimentEntry[]) ?? [];
+      setManualEntries(rawManual);
+
+      const rawJournal: JournalEntry[] = (logs ?? []).map((log) => {
+        const ids = (log.collection_item_ids as string[]) ?? [];
+        const names = ids.map((id) => idToItem[id]?.perfume?.name).filter(Boolean) as string[];
+        return { id: log.id as string, collection_item_ids: ids, date: log.date as string, names };
+      });
+      setJournalEntries(rawJournal);
+
       const countMap = new Map<string, ComplimentGroup>();
 
       function upsertGroup(names: string[], itemIds: string[]) {
@@ -73,7 +93,6 @@ export default function ComplimentTrackerPage() {
         if (existing) {
           existing.count += 1;
         } else {
-          // Get image + brand from first item that matches
           const firstId = itemIds[0];
           const firstItem = firstId ? idToItem[firstId] : undefined;
           countMap.set(key, {
@@ -83,24 +102,15 @@ export default function ComplimentTrackerPage() {
             brand: firstItem?.perfume?.brand,
             count: 1,
             isCombo: sorted.length > 1,
-            sourceIds: itemIds,
           });
         }
       }
 
-      // Process journal logs
-      for (const log of logs ?? []) {
-        const ids = (log.collection_item_ids as string[]) ?? [];
-        const names = ids
-          .map((id) => idToItem[id]?.perfume?.name)
-          .filter(Boolean) as string[];
-        if (names.length > 0) upsertGroup(names, ids);
+      for (const j of rawJournal) {
+        if (j.names.length > 0) upsertGroup(j.names, j.collection_item_ids);
       }
-
-      // Process manual entries
-      for (const entry of (manual as ComplimentEntry[]) ?? []) {
-        const names = entry.perfume_names ?? [];
-        if (names.length > 0) upsertGroup(names, entry.collection_item_ids);
+      for (const entry of rawManual) {
+        if (entry.perfume_names?.length > 0) upsertGroup(entry.perfume_names, entry.collection_item_ids);
       }
 
       const sorted = [...countMap.values()].sort((a, b) => b.count - a.count);
@@ -113,29 +123,86 @@ export default function ComplimentTrackerPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function saveManual() {
-    if (!user || addIds.length === 0) { toast.error("Select at least one fragrance"); return; }
+  function openAdd() {
+    setEditingEntry(null);
+    setSheetIds([]);
+    setSheetOpen(true);
+  }
+
+  function openEdit(entry: ComplimentEntry) {
+    setEditingEntry(entry);
+    setSheetIds(entry.collection_item_ids ?? []);
+    setSheetOpen(true);
+  }
+
+  function closeSheet() {
+    setSheetOpen(false);
+    setEditingEntry(null);
+    setSheetIds([]);
+  }
+
+  async function saveSheet() {
+    if (!user || sheetIds.length === 0) { toast.error("Select at least one fragrance"); return; }
     setSaving(true);
     try {
       const supabase = createClient();
-      const names = addIds
+      const names = sheetIds
         .map((id) => closetItems.find((i) => i.id === id)?.perfume?.name)
         .filter(Boolean) as string[];
-      const { error } = await supabase.from("compliment_entries").insert({
-        user_id: user.id,
-        collection_item_ids: addIds,
-        perfume_names: names,
-        date: format(new Date(), "yyyy-MM-dd"),
-      });
-      if (error) throw error;
-      toast.success("Compliment recorded!");
-      setAddOpen(false);
-      setAddIds([]);
+
+      if (editingEntry) {
+        const { error } = await supabase
+          .from("compliment_entries")
+          .update({ collection_item_ids: sheetIds, perfume_names: names })
+          .eq("id", editingEntry.id);
+        if (error) throw error;
+        toast.success("Entry updated");
+      } else {
+        const { error } = await supabase.from("compliment_entries").insert({
+          user_id: user.id,
+          collection_item_ids: sheetIds,
+          perfume_names: names,
+          date: format(new Date(), "yyyy-MM-dd"),
+        });
+        if (error) throw error;
+        toast.success("Compliment recorded!");
+      }
+      closeSheet();
       await load();
     } catch {
       toast.error("Failed to save");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function deleteManual(id: string) {
+    setDeleting(id);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.from("compliment_entries").delete().eq("id", id);
+      if (error) throw error;
+      toast.success("Entry deleted");
+      await load();
+    } catch {
+      toast.error("Failed to delete");
+    } finally {
+      setDeleting(null);
+    }
+  }
+
+  async function removeJournalCompliment(id: string) {
+    setDeleting(id);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.from("scent_logs").update({ got_compliment: false }).eq("id", id);
+      if (error) throw error;
+      toast.success("Compliment removed from log");
+      await load();
+    } catch {
+      toast.error("Failed to update");
+    } finally {
+      setDeleting(null);
     }
   }
 
@@ -149,6 +216,8 @@ export default function ComplimentTrackerPage() {
     );
   }
 
+  const hasEntries = manualEntries.length > 0 || journalEntries.length > 0;
+
   return (
     <AppShell>
       <div className="px-4 pt-8 pb-8 space-y-6">
@@ -159,7 +228,7 @@ export default function ComplimentTrackerPage() {
             <h1 className="font-display text-2xl">Compliment Tracker</h1>
             <p className="text-sm text-muted-foreground">Scents that turn heads</p>
           </div>
-          <Button size="sm" className="gap-1.5" onClick={() => setAddOpen(true)}>
+          <Button size="sm" className="gap-1.5" onClick={openAdd}>
             <Plus className="w-3.5 h-3.5" /> Add
           </Button>
         </div>
@@ -175,66 +244,121 @@ export default function ComplimentTrackerPage() {
           </div>
         </div>
 
-        {/* Ranked list */}
         {loading ? (
           <div className="flex justify-center py-12">
             <Loader2 className="w-5 h-5 animate-spin text-primary" />
           </div>
-        ) : groups.length === 0 ? (
+        ) : !hasEntries ? (
           <div className="text-center py-16 space-y-3">
             <MessageCircleHeart className="w-10 h-10 text-muted-foreground/30 mx-auto" />
             <p className="text-muted-foreground text-sm">No compliments recorded yet.</p>
             <p className="text-xs text-muted-foreground">Tick &ldquo;Got a compliment&rdquo; in your scent log, or add one manually.</p>
-            <Button variant="outline" size="sm" className="gap-1.5 mt-2" onClick={() => setAddOpen(true)}>
+            <Button variant="outline" size="sm" className="gap-1.5 mt-2" onClick={openAdd}>
               <Plus className="w-3.5 h-3.5" /> Add manually
             </Button>
           </div>
         ) : (
-          <div className="space-y-2">
-            {groups.map((g, i) => (
-              <div
-                key={g.key}
-                className="bg-card border border-border rounded-2xl p-3.5 flex items-center gap-3"
-              >
-                {/* Rank */}
-                <span className="text-xs font-bold text-muted-foreground w-6 shrink-0 text-center">#{i + 1}</span>
-
-                {/* Image */}
-                <div className="w-11 h-11 rounded-xl bg-plum-50 flex items-center justify-center shrink-0 overflow-hidden">
-                  {proxyImageUrl(g.imageUrl) ? (
-                    <Image src={proxyImageUrl(g.imageUrl)!} alt={g.names[0]} width={44} height={44} className="object-contain" unoptimized />
-                  ) : (
-                    <Droplets className="w-5 h-5 text-plum-300" />
-                  )}
-                </div>
-
-                {/* Name(s) */}
-                <div className="flex-1 min-w-0">
-                  {g.isCombo && (
-                    <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium mr-1">combo</span>
-                  )}
-                  <p className="text-sm font-medium leading-tight truncate">{g.names.join(" + ")}</p>
-                  {g.brand && !g.isCombo && (
-                    <p className="text-xs text-muted-foreground truncate">{g.brand}</p>
-                  )}
-                </div>
-
-                {/* Count */}
-                <div className="flex items-center gap-1 shrink-0">
-                  <MessageCircleHeart className="w-4 h-4 text-primary" />
-                  <span className={cn("font-display text-lg text-primary")}>{g.count}</span>
-                </div>
+          <>
+            {/* Ranked leaderboard */}
+            {groups.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Most complimented</p>
+                {groups.map((g, i) => (
+                  <div
+                    key={g.key}
+                    className="bg-card border border-border rounded-2xl p-3.5 flex items-center gap-3"
+                  >
+                    <span className="text-xs font-bold text-muted-foreground w-6 shrink-0 text-center">#{i + 1}</span>
+                    <div className="w-11 h-11 rounded-xl bg-plum-50 flex items-center justify-center shrink-0 overflow-hidden">
+                      {proxyImageUrl(g.imageUrl) ? (
+                        <Image src={proxyImageUrl(g.imageUrl)!} alt={g.names[0]} width={44} height={44} className="object-contain" unoptimized />
+                      ) : (
+                        <Droplets className="w-5 h-5 text-plum-300" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      {g.isCombo && (
+                        <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium mr-1">combo</span>
+                      )}
+                      <p className="text-sm font-medium leading-tight truncate">{g.names.join(" + ")}</p>
+                      {g.brand && !g.isCombo && (
+                        <p className="text-xs text-muted-foreground truncate">{g.brand}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <MessageCircleHeart className="w-4 h-4 text-primary" />
+                      <span className={cn("font-display text-lg text-primary")}>{g.count}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+
+            {/* Manual entries — editable */}
+            {manualEntries.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Manual entries</p>
+                {manualEntries.map((entry) => (
+                  <div key={entry.id} className="bg-card border border-border rounded-2xl p-3.5 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium leading-tight truncate">{entry.perfume_names?.join(" + ") ?? "—"}</p>
+                      <p className="text-xs text-muted-foreground">{entry.date ? format(parseISO(entry.date), "MMM d, yyyy") : ""}</p>
+                    </div>
+                    <button
+                      onClick={() => openEdit(entry)}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => deleteManual(entry.id)}
+                      disabled={deleting === entry.id}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                    >
+                      {deleting === entry.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Journal-derived entries — removable */}
+            {journalEntries.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <BookOpen className="w-3.5 h-3.5" /> From scent journal
+                </p>
+                {journalEntries.map((entry) => (
+                  <div key={entry.id} className="bg-card border border-border rounded-2xl p-3.5 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium leading-tight truncate">
+                        {entry.names.length > 0 ? entry.names.join(" + ") : <span className="text-muted-foreground italic">Unknown fragrance</span>}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{entry.date ? format(parseISO(entry.date), "MMM d, yyyy") : ""}</p>
+                    </div>
+                    <button
+                      onClick={() => removeJournalCompliment(entry.id)}
+                      disabled={deleting === entry.id}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                      title="Remove compliment from this log"
+                    >
+                      {deleting === entry.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
-      {/* Manual entry sheet */}
-      <Sheet open={addOpen} onOpenChange={(open) => { if (!open) { setAddOpen(false); setAddIds([]); } }}>
+      {/* Add / Edit sheet */}
+      <Sheet open={sheetOpen} onOpenChange={(open) => { if (!open) closeSheet(); }}>
         <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto rounded-t-2xl px-4 pb-8">
           <SheetHeader className="mb-4 pt-2">
-            <SheetTitle className="font-display text-left">Record a Compliment</SheetTitle>
+            <SheetTitle className="font-display text-left">
+              {editingEntry ? "Edit Entry" : "Record a Compliment"}
+            </SheetTitle>
             <p className="text-sm text-muted-foreground text-left">Which fragrance(s) were you wearing?</p>
           </SheetHeader>
 
@@ -244,20 +368,20 @@ export default function ComplimentTrackerPage() {
             ) : (
               <PerfumeSelect
                 items={closetItems}
-                value={addIds}
-                onChange={setAddIds}
+                value={sheetIds}
+                onChange={setSheetIds}
                 placeholder="Search your closet…"
               />
             )}
 
-            {addIds.length > 0 && (
+            {sheetIds.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
-                {addIds.map((id) => {
+                {sheetIds.map((id) => {
                   const item = closetItems.find((i) => i.id === id);
                   return item ? (
                     <span key={id} className="text-xs bg-primary/10 text-primary px-2.5 py-1 rounded-full flex items-center gap-1.5">
                       {item.perfume?.name}
-                      <button onClick={() => setAddIds((prev) => prev.filter((x) => x !== id))}>
+                      <button onClick={() => setSheetIds((prev) => prev.filter((x) => x !== id))}>
                         <Trash2 className="w-3 h-3" />
                       </button>
                     </span>
@@ -266,8 +390,8 @@ export default function ComplimentTrackerPage() {
               </div>
             )}
 
-            <Button className="w-full h-11" onClick={saveManual} disabled={saving || addIds.length === 0}>
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save Compliment"}
+            <Button className="w-full h-11" onClick={saveSheet} disabled={saving || sheetIds.length === 0}>
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : editingEntry ? "Save Changes" : "Save Compliment"}
             </Button>
           </div>
         </SheetContent>

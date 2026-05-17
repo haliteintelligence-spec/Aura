@@ -14,8 +14,9 @@ import { SEASONS, OCCASIONS, MOODS, cn } from "@/lib/utils";
 import { PerfumeSelect } from "@/components/ui/perfume-select";
 import type { CollectionItem, LayerCombo } from "@/lib/types";
 import { toast } from "sonner";
-import { Loader2, Layers, Sparkles, Save, Check, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
+import { Loader2, Sparkles, Save, Check, ChevronDown, ChevronUp, Trash2, RefreshCw, Droplets } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 interface ComboResult {
   selected_perfumes?: string[];
@@ -31,6 +32,7 @@ interface ComboResult {
 
 export default function LayeringPage() {
   const { user } = useUser();
+  const router = useRouter();
   const [closetItems, setClosetItems] = useState<CollectionItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [mode, setMode] = useState<"manual" | "generate">("manual");
@@ -113,26 +115,37 @@ export default function LayeringPage() {
       const data = await res.json();
       setResult(data);
     } catch {
-      toast.error("Failed to analyse combination");
+      toast.error("Failed to get recommendation");
     } finally {
       setLoading(false);
     }
+  }
+
+  function resolveItemIds(): string[] {
+    if (mode === "generate" && result?.selected_perfumes?.length) {
+      return closetItems
+        .filter((item) => result.selected_perfumes!.some(
+          (name) => item.perfume?.name?.toLowerCase() === name.toLowerCase()
+        ))
+        .map((item) => item.id);
+    }
+    return selectedIds;
+  }
+
+  function handleWearIt() {
+    const itemIds = resolveItemIds();
+    const params = new URLSearchParams();
+    if (itemIds.length > 0) params.set("ids", itemIds.join(","));
+    if (genMood.length > 0) params.set("mood", genMood.join(","));
+    if (genOccasion.length > 0) params.set("occasions", genOccasion.join(","));
+    router.push(`/scent-log?${params.toString()}`);
   }
 
   async function saveCombo() {
     if (!user || !result) return;
     const supabase = createClient();
 
-    // In generate mode, resolve AI-picked perfume names back to collection item IDs
-    const itemIds = mode === "generate" && result.selected_perfumes?.length
-      ? closetItems
-          .filter((item) => result.selected_perfumes!.some(
-            (name) => item.perfume?.name?.toLowerCase() === name.toLowerCase()
-          ))
-          .map((item) => item.id)
-      : selectedIds;
-
-    // Resolve perfume names from item IDs (for display even if items are later removed)
+    const itemIds = resolveItemIds();
     const perfumeNames = result.selected_perfumes?.length
       ? result.selected_perfumes
       : closetItems.filter((i) => itemIds.includes(i.id)).map((i) => i.perfume?.name).filter(Boolean) as string[];
@@ -152,7 +165,7 @@ export default function LayeringPage() {
     });
     if (!error) {
       setSaved(true);
-      toast.success("Combo saved!");
+      toast.success("Saved!");
       checkAndAwardBadges(user.id);
       loadSavedCombos();
     } else {
@@ -164,7 +177,7 @@ export default function LayeringPage() {
     return (
       <AppShell>
         <div className="flex flex-col items-center justify-center py-24 px-4 text-center gap-4">
-          <p className="text-muted-foreground">Sign in to use the Layering Combinator</p>
+          <p className="text-muted-foreground">Sign in to use Scent Picker</p>
           <Link href="/sign-in"><Button>Sign in</Button></Link>
         </div>
       </AppShell>
@@ -176,10 +189,10 @@ export default function LayeringPage() {
       <div className="px-4 pt-6 pb-8 space-y-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Layers className="w-5 h-5 text-primary" />
-            <h1 className="font-display text-2xl">Layering</h1>
+            <Sparkles className="w-5 h-5 text-primary" />
+            <h1 className="font-display text-2xl">Scent Picker</h1>
           </div>
-          <p className="text-sm text-muted-foreground">Combine fragrances or let AI create the perfect mix</p>
+          <p className="text-sm text-muted-foreground">Layer fragrances or get a personalised recommendation</p>
         </div>
 
         {/* Mode toggle */}
@@ -187,13 +200,13 @@ export default function LayeringPage() {
           {(["manual", "generate"] as const).map((m) => (
             <button
               key={m}
-              onClick={() => { setMode(m); setResult(null); setSelectedIds([]); }}
+              onClick={() => { setMode(m); setResult(null); setSelectedIds([]); setSaved(false); }}
               className={cn(
                 "py-2.5 rounded-xl text-sm font-medium border transition-colors",
                 mode === m ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border"
               )}
             >
-              {m === "manual" ? "Manual Mix" : "✨ Generate Combo"}
+              {m === "manual" ? "Manual Mix" : "✨ Get Recommendations"}
             </button>
           ))}
         </div>
@@ -202,12 +215,7 @@ export default function LayeringPage() {
           <>
             <div className="space-y-2">
               <label className="text-sm font-semibold">Select fragrances to layer</label>
-              <PerfumeSelect
-                items={closetItems}
-                value={selectedIds}
-                onChange={setSelectedIds}
-                placeholder="Search your closet…"
-              />
+              <PerfumeSelect items={closetItems} value={selectedIds} onChange={setSelectedIds} placeholder="Search your closet…" />
               {selectedIds.length > 0 && (
                 <p className="text-xs text-muted-foreground">{selectedIds.length} selected — need at least 2</p>
               )}
@@ -237,7 +245,10 @@ export default function LayeringPage() {
                 <Select value={genCount} onValueChange={setGenCount}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {["2", "3", "4"].map((n) => <SelectItem key={n} value={n}>{n}</SelectItem>)}
+                    <SelectItem value="1">1 — Just one pick</SelectItem>
+                    <SelectItem value="2">2 — Pair</SelectItem>
+                    <SelectItem value="3">3 — Trio</SelectItem>
+                    <SelectItem value="4">4 — Full layer</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -252,60 +263,9 @@ export default function LayeringPage() {
             </div>
             <Button className="w-full h-11 gap-2" onClick={analyse} disabled={loading}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              Generate Combo
+              Get Recommendations
             </Button>
           </>
-        )}
-
-        {/* Saved combos */}
-        {savedCombos.length > 0 && (
-          <section className="space-y-3">
-            <h2 className="font-display text-base">Saved Combos</h2>
-            <div className="space-y-2">
-              {savedCombos.map((combo) => {
-                const isExpanded = expandedCombo === combo.id;
-                const resolvedNames = closetItems
-                  .filter((i) => combo.collection_item_ids.includes(i.id))
-                  .map((i) => i.perfume?.name)
-                  .filter(Boolean) as string[];
-                const perfumeNamesStr = (resolvedNames.length > 0 ? resolvedNames : combo.perfume_names ?? []).join(" + ") || null;
-                return (
-                  <div key={combo.id} className="bg-card border border-border rounded-2xl overflow-hidden">
-                    <button
-                      className="w-full flex items-center justify-between px-4 py-3 text-left"
-                      onClick={() => setExpandedCombo(isExpanded ? null : combo.id)}
-                    >
-                      <div className="min-w-0">
-                        <p className="font-display text-sm font-medium truncate">{combo.name ?? "Unnamed combo"}</p>
-                        {perfumeNamesStr && <p className="text-xs text-muted-foreground truncate">{perfumeNamesStr}</p>}
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); deleteCombo(combo.id); }}
-                          className="p-1 text-muted-foreground hover:text-destructive transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                        {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-                      </div>
-                    </button>
-                    {isExpanded && (
-                      <div className="px-4 pb-4 space-y-2 border-t border-border pt-3">
-                        {combo.combined_profile && (
-                          <p className="text-sm text-muted-foreground leading-relaxed">{combo.combined_profile}</p>
-                        )}
-                        <div className="flex flex-wrap gap-1">
-                          {combo.occasion?.map((o) => <span key={o} className="text-[10px] bg-muted px-2 py-0.5 rounded-full">{o}</span>)}
-                          {combo.season?.map((s) => <span key={s} className="text-[10px] bg-muted px-2 py-0.5 rounded-full">{s}</span>)}
-                          {combo.mood?.map((m) => <span key={m} className="text-[10px] bg-muted px-2 py-0.5 rounded-full">{m}</span>)}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
         )}
 
         {/* Result */}
@@ -317,16 +277,28 @@ export default function LayeringPage() {
               </div>
             )}
 
-            {result.selected_perfumes && (
+            {result.selected_perfumes && result.selected_perfumes.length > 0 && (
               <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Combo</p>
-                <p className="text-sm">{result.selected_perfumes.join(" + ")}</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  {result.selected_perfumes.length === 1 ? "Recommendation" : "Combo"}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {result.selected_perfumes.map((name) => {
+                    const item = closetItems.find((i) => i.perfume?.name?.toLowerCase() === name.toLowerCase());
+                    return (
+                      <div key={name} className="flex items-center gap-1.5 bg-muted rounded-lg px-2.5 py-1">
+                        {item?.perfume?.image_url ? null : <Droplets className="w-3 h-3 text-muted-foreground" />}
+                        <span className="text-sm font-medium">{name}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
             {result.combined_profile && (
               <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Combined Profile</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Profile</p>
                 <p className="text-sm leading-relaxed text-muted-foreground">{result.combined_profile}</p>
               </div>
             )}
@@ -366,15 +338,88 @@ export default function LayeringPage() {
               </div>
             )}
 
-            <Button
-              variant={saved ? "secondary" : "outline"}
-              className="w-full gap-2"
-              onClick={saveCombo}
-              disabled={saved}
-            >
-              {saved ? <><Check className="w-4 h-4" /> Saved!</> : <><Save className="w-4 h-4" /> Save this combo</>}
-            </Button>
+            <Separator />
+
+            {/* Action buttons */}
+            <div className="space-y-2">
+              {/* Wear It + Generate Another */}
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="outline" className="gap-1.5" onClick={analyse} disabled={loading}>
+                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                  Try another
+                </Button>
+                <Button className="gap-1.5" onClick={handleWearIt}>
+                  <Droplets className="w-3.5 h-3.5" />
+                  Wear it today
+                </Button>
+              </div>
+
+              {/* Save combo */}
+              <Button
+                variant={saved ? "secondary" : "ghost"}
+                className="w-full gap-2 text-muted-foreground"
+                onClick={saveCombo}
+                disabled={saved}
+              >
+                {saved ? <><Check className="w-4 h-4" /> Saved!</> : <><Save className="w-4 h-4" /> Save this combo</>}
+              </Button>
+            </div>
           </div>
+        )}
+
+        {/* Saved combos */}
+        {savedCombos.length > 0 && (
+          <section className="space-y-3">
+            <h2 className="font-display text-base">Saved Combos</h2>
+            <div className="space-y-2">
+              {savedCombos.map((combo) => {
+                const isExpanded = expandedCombo === combo.id;
+                const resolvedNames = closetItems
+                  .filter((i) => combo.collection_item_ids.includes(i.id))
+                  .map((i) => i.perfume?.name)
+                  .filter(Boolean) as string[];
+                const perfumeNamesStr = (resolvedNames.length > 0 ? resolvedNames : combo.perfume_names ?? []).join(" + ") || null;
+                return (
+                  <div key={combo.id} className="bg-card border border-border rounded-2xl overflow-hidden">
+                    <button
+                      className="w-full flex items-center justify-between px-4 py-3 text-left"
+                      onClick={() => setExpandedCombo(isExpanded ? null : combo.id)}
+                    >
+                      <div className="min-w-0">
+                        <p className="font-display text-sm font-medium truncate">{combo.name ?? "Unnamed combo"}</p>
+                        {perfumeNamesStr && <p className="text-xs text-muted-foreground truncate">{perfumeNamesStr}</p>}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button onClick={(e) => { e.stopPropagation(); deleteCombo(combo.id); }} className="p-1 text-muted-foreground hover:text-destructive transition-colors">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                      </div>
+                    </button>
+                    {isExpanded && (
+                      <div className="px-4 pb-4 space-y-2 border-t border-border pt-3">
+                        {combo.combined_profile && <p className="text-sm text-muted-foreground leading-relaxed">{combo.combined_profile}</p>}
+                        <div className="flex flex-wrap gap-1">
+                          {combo.occasion?.map((o) => <span key={o} className="text-[10px] bg-muted px-2 py-0.5 rounded-full">{o}</span>)}
+                          {combo.season?.map((s) => <span key={s} className="text-[10px] bg-muted px-2 py-0.5 rounded-full">{s}</span>)}
+                          {combo.mood?.map((m) => <span key={m} className="text-[10px] bg-muted px-2 py-0.5 rounded-full">{m}</span>)}
+                        </div>
+                        <Button size="sm" variant="outline" className="gap-1.5 mt-1" onClick={() => {
+                          const params = new URLSearchParams();
+                          if (combo.collection_item_ids.length > 0) params.set("ids", combo.collection_item_ids.join(","));
+                          if (combo.mood?.length) params.set("mood", combo.mood.join(","));
+                          if (combo.occasion?.length) params.set("occasions", combo.occasion.join(","));
+                          router.push(`/scent-log?${params.toString()}`);
+                        }}>
+                          <Droplets className="w-3.5 h-3.5" /> Wear today
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         )}
       </div>
     </AppShell>
