@@ -15,13 +15,16 @@ import { format } from "date-fns";
 
 interface ScentLogFormProps {
   onSaved?: () => void;
+  initialItemIds?: string[];
+  initialMood?: string[];
+  initialOccasions?: string[];
 }
 
-export function ScentLogForm({ onSaved }: ScentLogFormProps) {
+export function ScentLogForm({ onSaved, initialItemIds = [], initialMood = [], initialOccasions = [] }: ScentLogFormProps) {
   const [closetItems, setClosetItems] = useState<CollectionItem[]>([]);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [mood, setMood] = useState<string[]>([]);
-  const [eventTypes, setEventTypes] = useState<string[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>(initialItemIds);
+  const [mood, setMood] = useState<string[]>(initialMood);
+  const [eventTypes, setEventTypes] = useState<string[]>(initialOccasions);
   const [rating, setRating] = useState(5);
   const [duration, setDuration] = useState("");
   const [notes, setNotes] = useState("");
