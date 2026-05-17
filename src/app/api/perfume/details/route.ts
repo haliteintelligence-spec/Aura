@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
+import { createClient } from "@/lib/supabase/server";
 
 interface ShopifyProduct {
   title: string;
@@ -508,6 +509,24 @@ async function getAIFallback(name: string, brand: string) {
 }
 
 
+// ── DB lookup ─────────────────────────────────────────────────────────────────
+
+async function lookupDB(name: string, brand: string) {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("perfumes")
+      .select("image_url,description,top_notes,heart_notes,base_notes")
+      .ilike("brand", brand.trim())
+      .ilike("name", name.trim())
+      .limit(1)
+      .single();
+    return data ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
@@ -533,20 +552,28 @@ export async function POST(request: NextRequest) {
     if (r.base_notes?.length && !base_notes.length) base_notes = r.base_notes;
   }
 
-  // 1. Brand's official website
-  merge(await tryBrandPage(name, brand).catch(() => null));
+  // 1. Database — fast, free, already-scraped real data
+  merge(await lookupDB(name, brand).catch(() => null));
+  if (image_url && top_notes.length && heart_notes.length && base_notes.length) {
+    return NextResponse.json({ image_url, description, top_notes, heart_notes, base_notes });
+  }
 
-  // 2. Fragrantica (always run if notes are still missing)
+  // 2. Brand's official website
+  if (!image_url || !top_notes.length) {
+    merge(await tryBrandPage(name, brand).catch(() => null));
+  }
+
+  // 3. Fragrantica
   if (!image_url || !top_notes.length) {
     merge(await tryFragrantica(name, brand).catch(() => null));
   }
 
-  // 3. Retail sites (ScentSplit, Twisted Lily, Lucky Scent, JoMashop, Harrods, Macy's, Bloomingdale's)
+  // 4. Retail sites (ScentSplit, Twisted Lily, Lucky Scent, JoMashop, Harrods, Macy's, Bloomingdale's)
   if (!image_url || !top_notes.length) {
     merge(await tryRetailers(name, brand).catch(() => null));
   }
 
-  // 4. AI fallback — fires when EITHER notes or image are still missing
+  // 5. AI fallback — fires when EITHER notes or image are still missing
   if (!top_notes.length || !image_url) {
     merge(await getAIFallback(name, brand).catch(() => null));
   }

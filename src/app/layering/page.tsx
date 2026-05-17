@@ -268,7 +268,7 @@ export default function LayeringPage() {
                   .filter((i) => combo.collection_item_ids.includes(i.id))
                   .map((i) => i.perfume?.name)
                   .filter(Boolean) as string[];
-                const perfumeNamesStr = (resolvedNames.length > 0 ? resolvedNames : (combo as LayerCombo & { perfume_names?: string[] }).perfume_names ?? []).join(" + ") || null;
+                const perfumeNamesStr = (resolvedNames.length > 0 ? resolvedNames : combo.perfume_names ?? []).join(" + ") || null;
                 return (
                   <div key={combo.id} className="bg-card border border-border rounded-2xl overflow-hidden">
                     <button

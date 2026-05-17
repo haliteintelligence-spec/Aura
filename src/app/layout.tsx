@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Toaster } from "@/components/ui/sonner";
+import { PushProvider } from "@/components/push/push-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -37,8 +38,10 @@ export default function RootLayout({
         />
       </head>
       <body className="h-full overflow-x-hidden">
-        {children}
-        <Toaster richColors position="top-center" />
+        <PushProvider>
+          {children}
+          <Toaster richColors position="top-center" />
+        </PushProvider>
       </body>
     </html>
   );

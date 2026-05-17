@@ -14,14 +14,16 @@ import type { CollectionItem, LayerCombo } from "@/lib/types";
 import { toast } from "sonner";
 import {
   User, Edit2, Check, X, Loader2, AlertTriangle,
-  TrendingUp, LogOut, Droplets, ChevronRight, Layers
+  TrendingUp, LogOut, Droplets, ChevronRight, Layers, Bell, BellOff
 } from "lucide-react";
+import { usePush } from "@/components/push/push-provider";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 export default function ProfilePage() {
   const { user, loading } = useUser();
+  const { supported, subscribed, subscribing, subscribe, unsubscribe } = usePush();
   const router = useRouter();
   const [displayName, setDisplayName] = useState("");
   const [editingName, setEditingName] = useState(false);
@@ -145,6 +147,29 @@ export default function ProfilePage() {
             <LogOut className="w-3.5 h-3.5" /> Sign out
           </Button>
         </div>
+
+        {/* Bottle level notifications */}
+        {supported && (
+          <div className="bg-card border border-border rounded-2xl p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {subscribed ? <Bell className="w-4 h-4 text-primary" /> : <BellOff className="w-4 h-4 text-muted-foreground" />}
+              <div>
+                <p className="text-sm font-medium">Bottle alerts</p>
+                <p className="text-xs text-muted-foreground">{subscribed ? "Notifying when bottles run low" : "Get notified when a bottle hits ¼"}</p>
+              </div>
+            </div>
+            <button
+              onClick={subscribed ? unsubscribe : subscribe}
+              disabled={subscribing}
+              className={`w-11 h-6 rounded-full transition-colors relative ${subscribed ? "bg-primary" : "bg-muted"}`}
+            >
+              {subscribing
+                ? <Loader2 className="w-3 h-3 animate-spin absolute top-1.5 left-1.5 text-muted-foreground" />
+                : <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${subscribed ? "left-5" : "left-0.5"}`} />
+              }
+            </button>
+          </div>
+        )}
 
         {/* Collection value */}
         <section className="space-y-3">

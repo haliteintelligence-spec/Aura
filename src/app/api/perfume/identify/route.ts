@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai, MODEL } from "@/lib/openai";
 import { createClient } from "@/lib/supabase/server";
-
-// ── DB lookup: match GPT candidate against our perfumes catalog ───────────────
+import { getBrandDomain, searchBrandSite } from "@/lib/brand-scraper";
 
 async function enrichFromDB(name: string, brand: string) {
   try {
     const supabase = await createClient();
-    // Try exact brand + fuzzy name first
     const { data } = await supabase
       .from("perfumes")
       .select("name,brand,year,description,top_notes,heart_notes,base_notes,fragrance_family,gender,image_url,prices")
@@ -17,7 +15,6 @@ async function enrichFromDB(name: string, brand: string) {
       .single();
     if (data) return data;
 
-    // Looser: just name match across any brand
     const { data: loose } = await supabase
       .from("perfumes")
       .select("name,brand,year,description,top_notes,heart_notes,base_notes,fragrance_family,gender,image_url,prices")
@@ -26,6 +23,18 @@ async function enrichFromDB(name: string, brand: string) {
       .limit(1)
       .single();
     return loose ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function enrichFromBrandSite(name: string, brand: string): Promise<{ image_url?: string } | null> {
+  try {
+    const domain = await getBrandDomain(brand);
+    if (!domain) return null;
+    const results = await searchBrandSite(domain, name, brand);
+    const match = results.find((r) => r.image_url);
+    return match ? { image_url: match.image_url } : null;
   } catch {
     return null;
   }
@@ -94,7 +103,7 @@ If you cannot identify the perfume, return your best guesses based on bottle sty
   let parsed: { candidates: Array<Record<string, unknown>> } = { candidates: [] };
   try { parsed = JSON.parse(text); } catch { /* keep empty */ }
 
-  // Enrich each candidate with database data where available
+  // Enrich each candidate: DB first, brand site if DB miss
   const enriched = await Promise.all(
     (parsed.candidates ?? []).map(async (c) => {
       const name = String(c.name ?? "");
@@ -102,24 +111,31 @@ If you cannot identify the perfume, return your best guesses based on bottle sty
       if (!name || !brand) return c;
 
       const db = await enrichFromDB(name, brand);
-      if (!db) return c;
+      if (db) {
+        return {
+          ...c,
+          name: db.name,
+          brand: db.brand,
+          year: db.year ?? c.year,
+          description: db.description ?? c.description,
+          top_notes: db.top_notes?.length ? db.top_notes : c.top_notes,
+          heart_notes: db.heart_notes?.length ? db.heart_notes : c.heart_notes,
+          base_notes: db.base_notes?.length ? db.base_notes : c.base_notes,
+          fragrance_family: db.fragrance_family?.length ? db.fragrance_family : c.fragrance_family,
+          gender: db.gender ?? c.gender,
+          image_url: db.image_url ?? c.image_url,
+          prices: db.prices ?? [],
+          source: "database",
+        };
+      }
 
-      // DB wins on all factual fields; keep GPT confidence score
-      return {
-        ...c,
-        name: db.name,
-        brand: db.brand,
-        year: db.year ?? c.year,
-        description: db.description ?? c.description,
-        top_notes: db.top_notes?.length ? db.top_notes : c.top_notes,
-        heart_notes: db.heart_notes?.length ? db.heart_notes : c.heart_notes,
-        base_notes: db.base_notes?.length ? db.base_notes : c.base_notes,
-        fragrance_family: db.fragrance_family?.length ? db.fragrance_family : c.fragrance_family,
-        gender: db.gender ?? c.gender,
-        image_url: db.image_url ?? c.image_url,
-        prices: db.prices ?? [],
-        source: "database",
-      };
+      // DB miss — try brand site for image at minimum
+      const brandSite = await enrichFromBrandSite(name, brand);
+      if (brandSite?.image_url) {
+        return { ...c, image_url: brandSite.image_url, source: "brand_site" };
+      }
+
+      return c;
     })
   );
 

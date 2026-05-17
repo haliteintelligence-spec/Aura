@@ -1,175 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai, MODEL } from "@/lib/openai";
 import { createClient } from "@/lib/supabase/server";
+import { getBrandDomain, searchBrandSite } from "@/lib/brand-scraper";
 import type { PerfumeSearchResult } from "@/lib/types";
-
-// ── Shared helpers (mirror of details/route.ts) ───────────────────────────────
-
-const FETCH_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-  "Accept-Language": "en-US,en;q=0.9",
-};
-
-const STOP_WORDS = new Set(["de", "du", "la", "le", "les", "the", "and", "for", "eau", "parfum", "toilette", "cologne"]);
-
-function tokenise(s: string): string[] {
-  return s.toLowerCase().split(/[\s\-_'./|]+/).filter((w) => (w.length > 2 || /^\d+$/.test(w)) && !STOP_WORDS.has(w));
-}
-
-function scoreMatch(text: string, name: string, brand: string): number {
-  const t = text.toLowerCase();
-  let score = 0;
-  for (const w of tokenise(name)) if (t.includes(w)) score += 2;
-  for (const w of tokenise(brand)) if (t.includes(w)) score += 1;
-  return score;
-}
-
-// ── Brand website search (fallback when GPT doesn't know the perfume) ─────────
-
-const FRAGRANCE_KEYWORDS = /\b(fragrance|perfume|parfum|scent|cologne|eau\s*de|edp|edt|notes?|olfact|ml\b|spray|mist|body\s*oil)/i;
-
-async function isFragranceDomain(domain: string): Promise<boolean> {
-  try {
-    const res = await fetch(`https://${domain}/products.json?limit=10`, { headers: FETCH_HEADERS, signal: AbortSignal.timeout(5000) });
-    if (!res.ok) throw new Error("no products.json");
-    const json = await res.json() as { products?: Array<{ title: string; body_html?: string; product_type?: string }> };
-    const products = json.products ?? [];
-    if (products.length === 0) throw new Error("empty products.json");
-    return products.some((p) =>
-      FRAGRANCE_KEYWORDS.test(p.title) || FRAGRANCE_KEYWORDS.test(p.product_type ?? "") || FRAGRANCE_KEYWORDS.test((p.body_html ?? "").slice(0, 300))
-    );
-  } catch { /* fall through to homepage */ }
-  try {
-    const res = await fetch(`https://${domain}`, { headers: FETCH_HEADERS, signal: AbortSignal.timeout(5000) });
-    if (res.ok) return FRAGRANCE_KEYWORDS.test((await res.text()).slice(0, 100000));
-  } catch { /* fall through */ }
-  return false;
-}
-
-async function getBrandDomain(brand: string): Promise<string | null> {
-  try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      max_tokens: 120,
-      messages: [
-        { role: "system", content: "Return up to 3 candidate domains for the fragrance brand's official website, most likely first. No protocol, no path. Return 'unknown' if not confident." },
-        { role: "user", content: `Official website domain(s) for fragrance brand: "${brand}"` },
-      ],
-    });
-    const raw = (completion.choices[0]?.message?.content ?? "").trim().toLowerCase();
-    const candidates = raw.split(/[\s,;|]+/).map((d) => d.replace(/^https?:\/\//, "").replace(/\/.*$/, "").trim()).filter((d) => d && d !== "unknown" && d.includes(".") && !d.includes(" "));
-    for (const domain of candidates) {
-      if (await isFragranceDomain(domain)) return domain;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-// Slug → readable title: "vanilla-28-eau-de-parfum" → "Vanilla 28 Eau De Parfum"
-function slugToTitle(slug: string): string {
-  return slug.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-}
-
-async function searchBrandSite(domain: string, name: string, brand: string): Promise<PerfumeSearchResult[]> {
-  const q = encodeURIComponent(name);
-  const searchPaths = [
-    `/search?q=${q}&type=product`,
-    `/search?q=${q}`,
-    `/search?query=${q}`,
-  ];
-
-  for (const path of searchPaths) {
-    try {
-      const res = await fetch(`https://${domain}${path}`, {
-        headers: FETCH_HEADERS,
-        signal: AbortSignal.timeout(7000),
-      });
-      if (!res.ok) continue;
-      const html = await res.text();
-
-      // ── Shopify embedded JSON — title + image are both available ─────────
-      const shopifyMatches = [
-        ...html.matchAll(/"title":"([^"]+)"[^{}]*?"url":"(\/[^"?]+)"[^{}]*?"image":\{"src":"(\/\/[^"]+)"/g),
-      ];
-      if (shopifyMatches.length > 0) {
-        return shopifyMatches
-          .map((m) => ({ title: m[1], src: m[3], score: scoreMatch(m[1], name, brand) }))
-          .filter((m) => m.score > 0)
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 8)
-          .map((m) => ({
-            name: m.title,
-            brand,
-            top_notes: [],
-            heart_notes: [],
-            base_notes: [],
-            fragrance_family: [],
-            image_url: m.src.startsWith("//") ? `https:${m.src}` : m.src,
-          }));
-      }
-
-      // ── Generic href links — derive name from URL slug ───────────────────
-      const re = /href="((?:\/[a-z]{2}(?:-[a-z]{2})?)?\/(?:products?|fragrances?|fragrance|perfume|p\/)[^"?#]+)"/gi;
-      const entries: Array<{ link: string; score: number }> = [];
-      const seen = new Set<string>();
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(html)) !== null) {
-        const link = m[1];
-        if (seen.has(link)) continue;
-        seen.add(link);
-        const score = scoreMatch(link, name, brand);
-        if (score > 0) entries.push({ link, score });
-      }
-      if (entries.length > 0) {
-        entries.sort((a, b) => b.score - a.score);
-        return entries.slice(0, 5).map((e) => {
-          const slug = e.link.split("/").filter(Boolean).pop() ?? "";
-          return {
-            name: slugToTitle(slug) || name,
-            brand,
-            top_notes: [],
-            heart_notes: [],
-            base_notes: [],
-            fragrance_family: [],
-          };
-        });
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  // ── Shopify products.json fallback (handles JS-rendered search pages) ────────
-  try {
-    const catalogRes = await fetch(`https://${domain}/products.json?limit=250`, {
-      headers: FETCH_HEADERS,
-      signal: AbortSignal.timeout(7000),
-    });
-    if (catalogRes.ok) {
-      const json = await catalogRes.json() as { products?: Array<{ title: string; handle: string; images?: Array<{ src: string }> }> };
-      const products = json.products ?? [];
-      return products
-        .map((p) => ({ p, score: scoreMatch(`${p.title} ${p.handle}`, name, brand) }))
-        .filter((x) => x.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 8)
-        .map(({ p }) => ({
-          name: p.title,
-          brand,
-          top_notes: [],
-          heart_notes: [],
-          base_notes: [],
-          fragrance_family: [],
-          image_url: p.images?.[0]?.src ?? undefined,
-        }));
-    }
-  } catch { /* fall through */ }
-
-  return [];
-}
 
 // ── GPT search ────────────────────────────────────────────────────────────────
 
@@ -266,26 +99,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ brand: b ?? dbResults[0]?.brand ?? "", results: normaliseResults(dbResults) });
   }
 
-  // 2. GPT for anything the database doesn't have enough of
-  const gpt = await searchWithGPT(b, n);
-
-  // Merge: DB results first (they have real data), then GPT results for anything new
-  const dbNames = new Set(dbResults.map((r) => `${r.brand}||${r.name}`.toLowerCase()));
-  const merged = [
-    ...dbResults,
-    ...gpt.results.filter((r) => !dbNames.has(`${r.brand}||${r.name}`.toLowerCase())),
-  ];
-
-  // 3. Brand site scrape as last resort if still empty
-  if (merged.length === 0 && hasBrand && hasName) {
+  // 2. Brand site scrape — before GPT, free, often has images
+  let brandSiteResults: PerfumeSearchResult[] = [];
+  if (hasBrand && hasName) {
     const domain = await getBrandDomain(b!).catch(() => null);
     if (domain) {
-      const brandResults = await searchBrandSite(domain, n!, b!).catch(() => [] as PerfumeSearchResult[]);
-      if (brandResults.length > 0) {
-        return NextResponse.json({ brand: b, results: normaliseResults(brandResults) });
-      }
+      brandSiteResults = await searchBrandSite(domain, n!, b!).catch(() => []);
     }
   }
 
-  return NextResponse.json({ brand: gpt.brand || b || "", results: normaliseResults(merged) });
+  const seenAfterScrape = new Set(dbResults.map((r) => `${r.brand}||${r.name}`.toLowerCase()));
+  const merged = [
+    ...dbResults,
+    ...brandSiteResults.filter((r) => !seenAfterScrape.has(`${r.brand}||${r.name}`.toLowerCase())),
+  ];
+
+  if (merged.length >= 3) {
+    return NextResponse.json({ brand: b ?? merged[0]?.brand ?? "", results: normaliseResults(merged) });
+  }
+
+  // 3. GPT as last resort
+  const gpt = await searchWithGPT(b, n);
+
+  const seenAfterGPT = new Set(merged.map((r) => `${r.brand}||${r.name}`.toLowerCase()));
+  const final = [
+    ...merged,
+    ...gpt.results.filter((r) => !seenAfterGPT.has(`${r.brand}||${r.name}`.toLowerCase())),
+  ];
+
+  return NextResponse.json({ brand: gpt.brand || b || "", results: normaliseResults(final) });
 }

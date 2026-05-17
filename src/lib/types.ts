@@ -68,6 +68,7 @@ export interface LayerCombo {
   name: string | null;
   collection_item_ids: string[];
   collection_items?: CollectionItem[];
+  perfume_names: string[];
   occasion: string[];
   season: string[];
   mood: string[];
@@ -126,4 +127,21 @@ export interface PriceResult {
   price_max: number | null;
   currency: string;
   source?: string;
+}
+
+export type BeautyCategory = "skincare" | "bodycare" | "haircare" | "candle" | "home_fragrance" | "other";
+
+export interface BeautyProduct {
+  id?: string;
+  name: string;
+  brand: string;
+  category: BeautyCategory;
+  subcategory?: string;
+  description?: string;
+  key_ingredients?: string[];
+  scent_notes?: string[];
+  image_url?: string;
+  prices?: Array<{ size: string; price_min: number | null; price_max: number | null; currency: string }>;
+  tags?: string[];
+  source_url?: string;
 }

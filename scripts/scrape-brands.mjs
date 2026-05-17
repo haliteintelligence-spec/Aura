@@ -11,11 +11,19 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { createClient } from "@supabase/supabase-js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-if (!OPENAI_API_KEY) { console.error("OPENAI_API_KEY not set"); process.exit(1); }
+const _env = Object.fromEntries(
+  fs.readFileSync(path.join(__dirname, "../.env.local"), "utf8")
+    .split("\n").filter((l) => l.includes("=") && !l.startsWith("#"))
+    .map((l) => { const i = l.indexOf("="); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^"|"$/g, "")]; })
+);
+const _db = createClient(_env.NEXT_PUBLIC_SUPABASE_URL, _env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+
+const OPENAI_API_KEY = _env.OPENAI_API_KEY;
+if (!OPENAI_API_KEY) { console.error("OPENAI_API_KEY not set in .env.local"); process.exit(1); }
 
 const FETCH_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -174,23 +182,18 @@ const BRANDS = [
   "Fragrance World",
 ];
 
-// ── Load existing perfumes (avoid duplicates) ─────────────────────────────────
+// ── Load existing perfumes from database (avoid duplicates) ───────────────────
 
-function loadExisting() {
+async function loadExisting() {
   const seen = new Set();
-  try {
-    const sql = fs.readFileSync(
-      path.join(__dirname, "../supabase/migrations/002_seed_perfumes.sql"),
-      "utf8"
-    );
-    const re = /uuid_generate_v4\(\),\s*'((?:[^']|'')*)',\s*'((?:[^']|'')*)',/g;
-    let m;
-    while ((m = re.exec(sql)) !== null) {
-      const name = m[1].replace(/''/g, "'").toLowerCase().trim();
-      const brand = m[2].replace(/''/g, "'").toLowerCase().trim();
-      seen.add(`${brand}||${name}`);
-    }
-  } catch { /* no file */ }
+  let from = 0;
+  while (true) {
+    const { data, error } = await _db.from("perfumes").select("name,brand").range(from, from + 999);
+    if (error || !data || data.length === 0) break;
+    for (const r of data) seen.add(`${r.brand.toLowerCase().trim()}||${r.name.toLowerCase().trim()}`);
+    if (data.length < 1000) break;
+    from += 1000;
+  }
   return seen;
 }
 
@@ -310,6 +313,26 @@ function extractNotes(text) {
 
 const FRAGRANCE_RE = /\b(eau\s*de|edp|edt|parfum|perfume|fragrance|cologne|scent|extrait|toilette|mist|spray)\b/i;
 const NON_FRAGRANCE_RE = /\b(candles?|diffusers?|soap|lotion|body\s*wash|shampoo|conditioner|moisturizers?|creams?|lip\s+(?:balm|care|gloss)|nail|hair\s*oil|room\s*spray|incense|reed\s*diffuser|gift\s*set|travel\s*size|hand\s*wash|body\s*lotion)\b/i;
+
+const BEAUTY_CATEGORY_RULES = [
+  { category: "candle",         re: /\b(candles?|bougie|vela)\b/i },
+  { category: "home_fragrance", re: /\b(diffusers?|room\s*spray|reed\s*diffuser|home\s*fragrance|incense|air\s*freshener)\b/i },
+  { category: "haircare",       re: /\b(shampoo|conditioner|hair\s*mask|hair\s*oil|hair\s*serum|hair\s*mist|hair\s*spray|hair\s*care|scalp)\b/i },
+  { category: "bodycare",       re: /\b(body\s*lotion|body\s*butter|body\s*cream|body\s*wash|body\s*scrub|body\s*oil|body\s*mist|body\s*spray|shower\s*gel|hand\s*cream|hand\s*lotion|hand\s*wash|bath\s*oil|bath\s*salt|bath\s*bomb|body\s*gloss|body\s*bar|lip\s+(?:balm|care|gloss)|massage\s*oil|deodorant|soap|lotion)\b/i },
+  { category: "skincare",       re: /\b(serum|moisturizer|moisturiser|face\s*cream|face\s*oil|face\s*wash|cleanser|toner|essence|eye\s*cream|sunscreen|spf|retinol|hyaluronic|niacinamide|exfoliant|face\s*mask|sheet\s*mask|facial|skincare|nail)\b/i },
+];
+
+/**
+ * Returns beauty category string if non-fragrance, null if it's a fragrance.
+ */
+function classifyBeauty(title, body) {
+  const hay = `${title} ${(body ?? "").slice(0, 400)}`.toLowerCase();
+  for (const rule of BEAUTY_CATEGORY_RULES) {
+    const m = hay.match(rule.re);
+    if (m) return { category: rule.category, subcategory: m[0].trim().toLowerCase() };
+  }
+  return null;
+}
 
 function isFragranceProduct(title, body) {
   if (NON_FRAGRANCE_RE.test(title)) return false;
@@ -465,6 +488,7 @@ async function processBrand(brand, existing) {
   }
 
   const results = [];
+  const beautyResults = []; // non-fragrance products → beauty_products table
 
   // ── Shopify path ──────────────────────────────────────────────────────────
 
@@ -474,7 +498,17 @@ async function processBrand(brand, existing) {
       if (!rawName) continue;
       const key = `${brand.toLowerCase()}||${rawName.toLowerCase()}`;
       if (existing.has(key)) continue;
-      if (!isFragranceProduct(rawName, p.body_html)) continue;
+
+      if (!isFragranceProduct(rawName, p.body_html)) {
+        // Check if it's a classifiable beauty product
+        const bc = classifyBeauty(rawName, p.body_html);
+        if (bc) {
+          const imageUrl = p.images?.[0]?.src?.split("?")[0] ?? null;
+          const prices = (p.variants ?? []).filter((v) => parseFloat(v.price) > 0).map((v) => ({ size: v.title, price_min: parseFloat(v.price), price_max: parseFloat(v.price), currency: "USD" }));
+          beautyResults.push({ name: rawName, brand, category: bc.category, subcategory: bc.subcategory, image_url: imageUrl, prices });
+        }
+        continue;
+      }
 
       const text = htmlToText(p.body_html);
       let notes = extractNotes(text);
@@ -486,7 +520,7 @@ async function processBrand(brand, existing) {
       results.push({ name: rawName, brand, image_url: imageUrl, top_notes: notes?.top ?? [], heart_notes: notes?.heart ?? [], base_notes: notes?.base ?? [] });
       existing.add(key);
     }
-    return results;
+    return { fragrances: results, beauty: beautyResults };
   }
 
   // ── WooCommerce path ──────────────────────────────────────────────────────
@@ -497,7 +531,15 @@ async function processBrand(brand, existing) {
       if (!rawName) continue;
       const key = `${brand.toLowerCase()}||${rawName.toLowerCase()}`;
       if (existing.has(key)) continue;
-      if (!isFragranceProduct(rawName, p.description ?? p.short_description ?? "")) continue;
+
+      if (!isFragranceProduct(rawName, p.description ?? p.short_description ?? "")) {
+        const bc = classifyBeauty(rawName, p.description ?? "");
+        if (bc) {
+          const imageUrl = p.images?.[0]?.src ?? null;
+          beautyResults.push({ name: rawName, brand, category: bc.category, subcategory: bc.subcategory, image_url: imageUrl, prices: [] });
+        }
+        continue;
+      }
 
       const text = htmlToText(p.description ?? p.short_description ?? "");
       let notes = extractNotes(text);
@@ -509,7 +551,7 @@ async function processBrand(brand, existing) {
       results.push({ name: rawName, brand, image_url: imageUrl, top_notes: notes?.top ?? [], heart_notes: notes?.heart ?? [], base_notes: notes?.base ?? [] });
       existing.add(key);
     }
-    return results;
+    return { fragrances: results, beauty: beautyResults };
   }
 
   // ── Sitemap fallback ──────────────────────────────────────────────────────
@@ -540,22 +582,42 @@ async function processBrand(brand, existing) {
     await new Promise((r) => setTimeout(r, 250));
   }
 
-  return results;
+  return { fragrances: results, beauty: beautyResults };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const existing = loadExisting();
-  console.log(`Loaded ${existing.size} existing perfumes\n`);
+  const existing = await loadExisting();
+  console.log(`Loaded ${existing.size} existing perfumes from database\n`);
 
   const all = [];
 
   for (const brand of BRANDS) {
     try {
-      const found = await processBrand(brand, existing);
+      const { fragrances: found, beauty: beautyFound } = await processBrand(brand, existing);
       all.push(...found);
-      console.log(`  → ${found.length} new perfumes added for ${brand}`);
+      console.log(`  → ${found.length} new perfumes, ${beautyFound.length} beauty products for ${brand}`);
+
+      // Insert fragrances
+      if (found.length > 0) {
+        const { error } = await _db.from("perfumes").insert(
+          found.map((p) => ({ name: p.name, brand: p.brand, top_notes: p.top_notes, heart_notes: p.heart_notes, base_notes: p.base_notes, image_url: p.image_url, fragrance_family: [], prices: [] })),
+          { onConflict: "name,brand", ignoreDuplicates: true }
+        );
+        if (error) console.log(`  DB insert error: ${error.message}`);
+        else console.log(`  ✓ Inserted ${found.length} into database`);
+      }
+
+      // Insert beauty products
+      if (beautyFound.length > 0) {
+        const { error: bErr } = await _db.from("beauty_products").insert(
+          beautyFound.map((p) => ({ name: p.name, brand: p.brand, category: p.category, subcategory: p.subcategory || null, image_url: p.image_url || null, prices: p.prices || [] })),
+          { onConflict: "brand,name", ignoreDuplicates: true }
+        );
+        if (bErr) console.log(`  Beauty insert error: ${bErr.message}`);
+        else console.log(`  ✓ Inserted ${beautyFound.length} beauty products`);
+      }
     } catch (e) {
       console.log(`  ERROR for ${brand}: ${e.message}`);
     }
@@ -563,31 +625,7 @@ async function main() {
   }
 
   console.log(`\n── Final count ──────────────────────────`);
-  console.log(`Total new perfumes: ${all.length}`);
-
-  if (all.length === 0) {
-    console.log("Nothing new scraped.");
-    return;
-  }
-
-  const rows = all.map((p) =>
-    `  (uuid_generate_v4(), ${escSql(p.name)}, ${escSql(p.brand)}, NULL, NULL, ${pgArray(p.top_notes)}, ${pgArray(p.heart_notes)}, ${pgArray(p.base_notes)}, '{}', NULL, ${escSql(p.image_url)}, now())`
-  );
-
-  const sql = `-- Scraped: ${all.length} perfumes from official brand websites
--- Generated ${new Date().toISOString()}
--- Paste in Supabase SQL Editor and run
-
-insert into public.perfumes
-  (id, name, brand, year, description, top_notes, heart_notes, base_notes, fragrance_family, gender, image_url, created_at)
-values
-${rows.join(",\n")}
-on conflict do nothing;
-`;
-
-  const outPath = path.join(__dirname, "../supabase/migrations/004_scraped_brands.sql");
-  fs.writeFileSync(outPath, sql, "utf8");
-  console.log(`\n✓ Written to ${outPath}`);
+  console.log(`Total new perfumes scraped: ${all.length}`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
