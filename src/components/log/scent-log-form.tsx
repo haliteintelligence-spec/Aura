@@ -36,7 +36,7 @@ export function ScentLogForm({ onSaved, initialItemIds = [], initialMood = [], i
     const supabase = createClient();
     supabase
       .from("collection_items")
-      .select("*, perfume:perfumes(*)")
+      .select("*, perfume:perfumes(*), user_perfume:user_perfumes(*)")
       .eq("collection_type", "closet")
       .then(({ data }) => setClosetItems((data as CollectionItem[]) ?? []));
   }, []);

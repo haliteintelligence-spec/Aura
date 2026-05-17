@@ -13,23 +13,23 @@ async function buildUserContext(userId: string, supabase: Awaited<ReturnType<typ
   ] = await Promise.all([
     supabase
       .from("collection_items")
-      .select("*, perfume:perfumes(name, brand, fragrance_family, top_notes, heart_notes, base_notes, gender)")
+      .select("*, perfume:perfumes(name, brand, fragrance_family, top_notes, heart_notes, base_notes, gender), user_perfume:user_perfumes(name, brand, fragrance_family, top_notes, heart_notes, base_notes, gender)")
       .eq("user_id", userId)
       .eq("collection_type", "closet")
       .order("created_at", { ascending: false }),
     supabase
       .from("collection_items")
-      .select("*, perfume:perfumes(name, brand, fragrance_family)")
+      .select("*, perfume:perfumes(name, brand, fragrance_family), user_perfume:user_perfumes(name, brand, fragrance_family)")
       .eq("user_id", userId)
       .eq("collection_type", "wishlist"),
     supabase
       .from("collection_items")
-      .select("*, perfume:perfumes(name, brand, fragrance_family)")
+      .select("*, perfume:perfumes(name, brand, fragrance_family), user_perfume:user_perfumes(name, brand, fragrance_family)")
       .eq("user_id", userId)
       .eq("collection_type", "owned_before"),
     supabase
       .from("scent_logs")
-      .select("*, items:collection_items(perfume:perfumes(name, brand))")
+      .select("*, items:collection_items(perfume:perfumes(name, brand), user_perfume:user_perfumes(name, brand))")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(20),
@@ -50,7 +50,7 @@ async function buildUserContext(userId: string, supabase: Awaited<ReturnType<typ
   if (closet && closet.length > 0) {
     lines.push(`### Perfume Closet (${closet.length} fragrances)`);
     for (const item of closet) {
-      const p = item.perfume as { name: string; brand: string; fragrance_family?: string[]; top_notes?: string[]; heart_notes?: string[]; base_notes?: string[] } | null;
+      const p = (item.perfume ?? item.user_perfume) as { name: string; brand: string; fragrance_family?: string[]; top_notes?: string[]; heart_notes?: string[]; base_notes?: string[] } | null;
       if (!p) continue;
       const notes = [
         p.top_notes?.length ? `top: ${p.top_notes.slice(0, 3).join(", ")}` : null,
@@ -67,7 +67,7 @@ async function buildUserContext(userId: string, supabase: Awaited<ReturnType<typ
   if (wishlist && wishlist.length > 0) {
     lines.push(`### Wishlist (${wishlist.length} fragrances)`);
     for (const item of wishlist) {
-      const p = item.perfume as { name: string; brand: string; fragrance_family?: string[] } | null;
+      const p = (item.perfume ?? item.user_perfume) as { name: string; brand: string; fragrance_family?: string[] } | null;
       if (p) lines.push(`- ${p.brand} ${p.name} [${p.fragrance_family?.join(", ") ?? ""}]`);
     }
     lines.push("");
@@ -76,7 +76,7 @@ async function buildUserContext(userId: string, supabase: Awaited<ReturnType<typ
   if (ownedBefore && ownedBefore.length > 0) {
     lines.push(`### Previously Owned (${ownedBefore.length} fragrances)`);
     for (const item of ownedBefore) {
-      const p = item.perfume as { name: string; brand: string } | null;
+      const p = (item.perfume ?? item.user_perfume) as { name: string; brand: string } | null;
       if (p) lines.push(`- ${p.brand} ${p.name}`);
     }
     lines.push("");
@@ -85,8 +85,8 @@ async function buildUserContext(userId: string, supabase: Awaited<ReturnType<typ
   if (recentLogs && recentLogs.length > 0) {
     lines.push(`### Recent Scent Logs (last ${recentLogs.length})`);
     for (const log of recentLogs.slice(0, 10)) {
-      const perfumeNames = (log.items as { perfume: { name: string; brand: string } | null }[] | null)
-        ?.map((i) => i.perfume ? `${i.perfume.brand} ${i.perfume.name}` : null)
+      const perfumeNames = (log.items as { perfume: { name: string; brand: string } | null; user_perfume: { name: string; brand: string } | null }[] | null)
+        ?.map((i) => { const p = i.perfume ?? i.user_perfume; return p ? `${p.brand} ${p.name}` : null; })
         .filter(Boolean)
         .join(", ") ?? "unknown";
       lines.push(`- ${log.date}: wore ${perfumeNames} | occasion: ${log.event_type ?? "?"}, mood: ${Array.isArray(log.mood) ? log.mood.join(", ") : (log.mood ?? "?")}, rating: ${log.rating ?? "?"}/10`);

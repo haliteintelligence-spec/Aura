@@ -39,7 +39,7 @@ export default function ScentJournalPage() {
         .order("date", { ascending: false }),
       supabase
         .from("collection_items")
-        .select("*, perfume:perfumes(*)")
+        .select("*, perfume:perfumes(*), user_perfume:user_perfumes(*)")
         .eq("user_id", user!.id)
         .eq("collection_type", "closet"),
     ]);
@@ -134,13 +134,13 @@ export default function ScentJournalPage() {
                       {items.map((item) => (
                         <div key={item.id} className="flex items-center gap-1.5 bg-muted rounded-full pl-1 pr-2.5 py-1">
                           <div className="w-6 h-6 rounded-full bg-plum-50 flex items-center justify-center overflow-hidden shrink-0">
-                            {proxyImageUrl(item.perfume?.image_url) ? (
-                              <Image src={proxyImageUrl(item.perfume!.image_url)!} alt="" width={24} height={24} className="object-contain" unoptimized />
+                            {proxyImageUrl((item.perfume ?? item.user_perfume)?.image_url) ? (
+                              <Image src={proxyImageUrl((item.perfume ?? item.user_perfume)!.image_url)!} alt="" width={24} height={24} className="object-contain" unoptimized />
                             ) : (
                               <Droplets className="w-3 h-3 text-plum-300" />
                             )}
                           </div>
-                          <span className="text-xs font-medium truncate max-w-24">{item.perfume?.name}</span>
+                          <span className="text-xs font-medium truncate max-w-24">{(item.perfume ?? item.user_perfume)?.name}</span>
                         </div>
                       ))}
                     </div>

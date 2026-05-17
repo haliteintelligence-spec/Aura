@@ -13,7 +13,7 @@ interface PerfumeCardProps {
 }
 
 export function PerfumeCard({ item, onClick, className }: PerfumeCardProps) {
-  const perfume = item.perfume;
+  const perfume = item.perfume ?? item.user_perfume;
   if (!perfume) return null;
 
   const levelFraction = levelToFraction(item.estimated_level);

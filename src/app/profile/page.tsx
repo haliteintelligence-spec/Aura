@@ -38,7 +38,7 @@ export default function ProfilePage() {
     setDisplayName(user.user_metadata?.display_name ?? "");
     const supabase = createClient();
     Promise.all([
-      supabase.from("collection_items").select("*, perfume:perfumes(*)").eq("user_id", user.id),
+      supabase.from("collection_items").select("*, perfume:perfumes(*), user_perfume:user_perfumes(*)").eq("user_id", user.id),
       supabase.from("layer_combos").select("*").eq("user_id", user.id).eq("saved", true).order("created_at", { ascending: false }),
     ]).then(([{ data: itemData }, { data: comboData }]) => {
       setItems((itemData as CollectionItem[]) ?? []);
@@ -98,7 +98,7 @@ export default function ProfilePage() {
   // Scent map data
   const familyCounts: Record<string, number> = {};
   for (const item of items) {
-    for (const f of item.perfume?.fragrance_family ?? []) {
+    for (const f of (item.perfume ?? item.user_perfume)?.fragrance_family ?? []) {
       familyCounts[f] = (familyCounts[f] ?? 0) + 1;
     }
   }
@@ -203,14 +203,14 @@ export default function ProfilePage() {
               {lowItems.map((item) => (
                 <div key={item.id} className="bg-card border border-amber-200 rounded-xl p-3 flex items-center gap-3">
                   <div className="w-10 h-10 rounded-lg bg-plum-50 flex items-center justify-center shrink-0">
-                    {item.perfume?.image_url ? (
-                      <Image src={item.perfume.image_url} alt="" width={40} height={40} className="object-contain" unoptimized />
+                    {(item.perfume ?? item.user_perfume)?.image_url ? (
+                      <Image src={(item.perfume ?? item.user_perfume)!.image_url!} alt="" width={40} height={40} className="object-contain" unoptimized />
                     ) : (
                       <Droplets className="w-5 h-5 text-plum-300" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{item.perfume?.name}</p>
+                    <p className="text-sm font-medium truncate">{(item.perfume ?? item.user_perfume)?.name}</p>
                     <Progress value={Math.round(levelToFraction(item.estimated_level) * 100)} className="h-1.5 mt-1" />
                     <p className="text-[10px] text-muted-foreground mt-0.5">{item.estimated_level} remaining</p>
                   </div>
@@ -256,19 +256,19 @@ export default function ProfilePage() {
             </DialogHeader>
             <div className="space-y-3 pt-1">
               {items
-                .filter((item) => item.perfume?.fragrance_family?.includes(selectedFamily ?? ""))
+                .filter((item) => (item.perfume ?? item.user_perfume)?.fragrance_family?.includes(selectedFamily ?? ""))
                 .map((item) => (
                   <div key={item.id} className="flex items-center gap-3 p-2 rounded-xl bg-muted/50">
                     <div className="w-10 h-10 rounded-lg bg-plum-50 flex items-center justify-center shrink-0 overflow-hidden">
-                      {proxyImageUrl(item.perfume?.image_url) ? (
-                        <Image src={proxyImageUrl(item.perfume!.image_url)!} alt="" width={40} height={40} className="object-contain" unoptimized />
+                      {proxyImageUrl((item.perfume ?? item.user_perfume)?.image_url) ? (
+                        <Image src={proxyImageUrl((item.perfume ?? item.user_perfume)!.image_url)!} alt="" width={40} height={40} className="object-contain" unoptimized />
                       ) : (
                         <Droplets className="w-5 h-5 text-plum-300" />
                       )}
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{item.perfume?.name}</p>
-                      <p className="text-xs text-muted-foreground truncate">{item.perfume?.brand}</p>
+                      <p className="text-sm font-medium truncate">{(item.perfume ?? item.user_perfume)?.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">{(item.perfume ?? item.user_perfume)?.brand}</p>
                     </div>
                     <Badge variant="secondary" className="text-[10px] shrink-0 ml-auto capitalize">{item.collection_type.replace("_", " ")}</Badge>
                   </div>

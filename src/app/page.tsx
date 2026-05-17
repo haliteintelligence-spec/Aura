@@ -77,10 +77,10 @@ export default function HomePage() {
         if (!allIds.length) return;
         const { data: collItems } = await supabase
           .from("collection_items")
-          .select("id, perfume:perfumes(name)")
+          .select("id, perfume:perfumes(name), user_perfume:user_perfumes(name)")
           .in("id", allIds);
         const idToName = Object.fromEntries(
-          (collItems ?? []).map((i) => [i.id, (i.perfume as unknown as { name: string } | null)?.name ?? ""])
+          (collItems ?? []).map((i) => [i.id, ((i.perfume ?? i.user_perfume) as unknown as { name: string } | null)?.name ?? ""])
         );
         const getSeason = (d: string) => {
           const m = new Date(d).getMonth() + 1;
@@ -123,10 +123,10 @@ export default function HomePage() {
         if (ids.length === 0) { setLoadingRecs(false); return; }
         const { data: items } = await supabase
           .from("collection_items")
-          .select("perfume:perfumes(name, brand)")
+          .select("perfume:perfumes(name, brand), user_perfume:user_perfumes(name, brand)")
           .in("id", ids.slice(0, 10));
-        const topPerfumes = (items?.map((i: { perfume: { name: string; brand: string }[] }) => i.perfume?.[0]?.name).filter(Boolean) as string[]).slice(0, 5);
-        const topBrands = [...new Set(items?.map((i: { perfume: { name: string; brand: string }[] }) => i.perfume?.[0]?.brand).filter(Boolean) as string[])].slice(0, 5);
+        const topPerfumes = (items?.map((i: any) => (i.perfume?.[0] ?? i.user_perfume?.[0])?.name).filter(Boolean) as string[]).slice(0, 5);
+        const topBrands = [...new Set(items?.map((i: any) => (i.perfume?.[0] ?? i.user_perfume?.[0])?.brand).filter(Boolean) as string[])].slice(0, 5);
         const res = await fetch("/api/recommendations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

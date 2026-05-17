@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getBrandDomainAny, searchBrandSite } from "@/lib/brand-scraper";
 import type { BeautyProduct, BeautyCategory } from "@/lib/types";
 
-const VALID_CATEGORIES = new Set(["skincare", "bodycare", "haircare", "candle", "home_fragrance", "other"]);
+const VALID_CATEGORIES = new Set(["skincare", "bodycare", "haircare", "candle", "home_fragrance", "fragrance", "other"]);
 
 // ── Database search ───────────────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ async function searchWithGPT(query: string, category?: string): Promise<BeautyPr
       messages: [
         {
           role: "system",
-          content: `You are a beauty product encyclopaedia. Return up to 8 matching beauty products for the given query. ${categoryHint} Categories: skincare, bodycare, haircare, candle, home_fragrance, other.`,
+          content: `You are a beauty product encyclopaedia. Return up to 8 matching beauty products for the given query. ${categoryHint} Categories: skincare, bodycare, haircare, candle, home_fragrance, fragrance, other. Use 'fragrance' for hair mists, body mists, body sprays, and hair perfumes.`,
         },
         {
           role: "user",

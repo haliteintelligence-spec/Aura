@@ -49,7 +49,7 @@ export function EditItemDialog({ item, open, onClose, onSaved }: EditItemDialogP
   if (!item) return null;
 
   const itemId = item.id;
-  const perfume = item.perfume;
+  const perfume = item.perfume ?? item.user_perfume;
   const levelFraction = levelToFraction(level);
 
   async function fetchPricesForSizes(newSizes: string[]) {

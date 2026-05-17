@@ -13,6 +13,7 @@ const CATEGORIES: Array<{ value: BeautyCategory | "all"; label: string }> = [
   { value: "skincare", label: "Skincare" },
   { value: "bodycare", label: "Body" },
   { value: "haircare", label: "Hair" },
+  { value: "fragrance", label: "Fragrance" },
   { value: "candle", label: "Candles" },
   { value: "home_fragrance", label: "Home" },
 ];
@@ -21,6 +22,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   skincare: "bg-rose-50 text-rose-700 border-rose-200",
   bodycare: "bg-amber-50 text-amber-700 border-amber-200",
   haircare: "bg-violet-50 text-violet-700 border-violet-200",
+  fragrance: "bg-pink-50 text-pink-700 border-pink-200",
   candle: "bg-orange-50 text-orange-700 border-orange-200",
   home_fragrance: "bg-teal-50 text-teal-700 border-teal-200",
   other: "bg-muted text-muted-foreground border-border",
@@ -31,6 +33,7 @@ function categoryLabel(cat: string): string {
     skincare: "Skincare",
     bodycare: "Body Care",
     haircare: "Hair Care",
+    fragrance: "Fragrance",
     candle: "Candle",
     home_fragrance: "Home",
     other: "Other",

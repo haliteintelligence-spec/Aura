@@ -53,7 +53,7 @@ export default function ComplimentTrackerPage() {
 
       const { data: items } = await supabase
         .from("collection_items")
-        .select("*, perfume:perfumes(*)")
+        .select("*, perfume:perfumes(*), user_perfume:user_perfumes(*)")
         .eq("user_id", user.id)
         .eq("collection_type", "closet");
       const closet = (items as CollectionItem[]) ?? [];
@@ -79,7 +79,7 @@ export default function ComplimentTrackerPage() {
 
       const rawJournal: JournalEntry[] = (logs ?? []).map((log) => {
         const ids = (log.collection_item_ids as string[]) ?? [];
-        const names = ids.map((id) => idToItem[id]?.perfume?.name).filter(Boolean) as string[];
+        const names = ids.map((id) => { const it = idToItem[id]; return (it?.perfume ?? it?.user_perfume)?.name; }).filter(Boolean) as string[];
         return { id: log.id as string, collection_item_ids: ids, date: log.date as string, names };
       });
       setJournalEntries(rawJournal);
@@ -98,8 +98,8 @@ export default function ComplimentTrackerPage() {
           countMap.set(key, {
             key,
             names: sorted,
-            imageUrl: firstItem?.perfume?.image_url ?? undefined,
-            brand: firstItem?.perfume?.brand,
+            imageUrl: (firstItem?.perfume ?? firstItem?.user_perfume)?.image_url ?? undefined,
+            brand: (firstItem?.perfume ?? firstItem?.user_perfume)?.brand,
             count: 1,
             isCombo: sorted.length > 1,
           });

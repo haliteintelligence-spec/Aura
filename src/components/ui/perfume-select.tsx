@@ -23,8 +23,9 @@ export function PerfumeSelect({ items, value, onChange, placeholder = "Search fr
 
   const filtered = search.trim()
     ? items.filter((item) => {
+        const p = item.perfume ?? item.user_perfume;
         const q = search.toLowerCase();
-        return item.perfume?.name?.toLowerCase().includes(q) || item.perfume?.brand?.toLowerCase().includes(q);
+        return p?.name?.toLowerCase().includes(q) || p?.brand?.toLowerCase().includes(q);
       })
     : items;
 
@@ -54,7 +55,7 @@ export function PerfumeSelect({ items, value, onChange, placeholder = "Search fr
                 className="text-xs px-1.5 py-0 gap-0.5 cursor-pointer"
                 onClick={(e) => { e.stopPropagation(); toggle(item.id); }}
               >
-                {item.perfume?.name}
+                {(item.perfume ?? item.user_perfume)?.name}
                 <X className="w-2.5 h-2.5" />
               </Badge>
             ))
@@ -88,15 +89,15 @@ export function PerfumeSelect({ items, value, onChange, placeholder = "Search fr
                     className="shrink-0"
                   />
                   <div className="w-7 h-7 rounded-md bg-plum-50 flex items-center justify-center shrink-0 overflow-hidden">
-                    {proxyImageUrl(item.perfume?.image_url) ? (
-                      <Image src={proxyImageUrl(item.perfume!.image_url)!} alt="" width={28} height={28} className="object-contain" unoptimized />
+                    {proxyImageUrl((item.perfume ?? item.user_perfume)?.image_url) ? (
+                      <Image src={proxyImageUrl((item.perfume ?? item.user_perfume)!.image_url)!} alt="" width={28} height={28} className="object-contain" unoptimized />
                     ) : (
                       <Droplets className="w-3.5 h-3.5 text-plum-300" />
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium truncate">{item.perfume?.name}</p>
-                    <p className="text-[10px] text-muted-foreground truncate">{item.perfume?.brand}</p>
+                    <p className="text-xs font-medium truncate">{(item.perfume ?? item.user_perfume)?.name}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{(item.perfume ?? item.user_perfume)?.brand}</p>
                   </div>
                 </label>
               ))

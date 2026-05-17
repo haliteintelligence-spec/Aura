@@ -55,7 +55,7 @@ export default function LayeringPage() {
     const supabase = createClient();
     supabase
       .from("collection_items")
-      .select("*, perfume:perfumes(*)")
+      .select("*, perfume:perfumes(*), user_perfume:user_perfumes(*)")
       .eq("user_id", user.id)
       .eq("collection_type", "closet")
       .then(({ data }) => setClosetItems((data as CollectionItem[]) ?? []));
@@ -85,8 +85,8 @@ export default function LayeringPage() {
 
   async function analyse() {
     const perfumesToSend = mode === "manual"
-      ? closetItems.filter((i) => selectedIds.includes(i.id)).map((i) => i.perfume)
-      : closetItems.map((i) => i.perfume);
+      ? closetItems.filter((i) => selectedIds.includes(i.id)).map((i) => i.perfume ?? i.user_perfume)
+      : closetItems.map((i) => i.perfume ?? i.user_perfume);
 
     if (mode === "manual" && selectedIds.length < 2) {
       toast.error("Select at least 2 fragrances");
@@ -125,7 +125,7 @@ export default function LayeringPage() {
     if (mode === "generate" && result?.selected_perfumes?.length) {
       return closetItems
         .filter((item) => result.selected_perfumes!.some(
-          (name) => item.perfume?.name?.toLowerCase() === name.toLowerCase()
+          (name) => (item.perfume ?? item.user_perfume)?.name?.toLowerCase() === name.toLowerCase()
         ))
         .map((item) => item.id);
     }
@@ -148,7 +148,7 @@ export default function LayeringPage() {
     const itemIds = resolveItemIds();
     const perfumeNames = result.selected_perfumes?.length
       ? result.selected_perfumes
-      : closetItems.filter((i) => itemIds.includes(i.id)).map((i) => i.perfume?.name).filter(Boolean) as string[];
+      : closetItems.filter((i) => itemIds.includes(i.id)).map((i) => (i.perfume ?? i.user_perfume)?.name).filter(Boolean) as string[];
 
     const { error } = await supabase.from("layer_combos").insert({
       user_id: user.id,
@@ -284,10 +284,10 @@ export default function LayeringPage() {
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {result.selected_perfumes.map((name) => {
-                    const item = closetItems.find((i) => i.perfume?.name?.toLowerCase() === name.toLowerCase());
+                    const item = closetItems.find((i) => (i.perfume ?? i.user_perfume)?.name?.toLowerCase() === name.toLowerCase());
                     return (
                       <div key={name} className="flex items-center gap-1.5 bg-muted rounded-lg px-2.5 py-1">
-                        {item?.perfume?.image_url ? null : <Droplets className="w-3 h-3 text-muted-foreground" />}
+                        {(item?.perfume ?? item?.user_perfume)?.image_url ? null : <Droplets className="w-3 h-3 text-muted-foreground" />}
                         <span className="text-sm font-medium">{name}</span>
                       </div>
                     );
@@ -376,7 +376,7 @@ export default function LayeringPage() {
                 const isExpanded = expandedCombo === combo.id;
                 const resolvedNames = closetItems
                   .filter((i) => combo.collection_item_ids.includes(i.id))
-                  .map((i) => i.perfume?.name)
+                  .map((i) => (i.perfume ?? i.user_perfume)?.name)
                   .filter(Boolean) as string[];
                 const perfumeNamesStr = (resolvedNames.length > 0 ? resolvedNames : combo.perfume_names ?? []).join(" + ") || null;
                 return (

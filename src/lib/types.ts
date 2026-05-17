@@ -21,6 +21,23 @@ export interface Perfume {
   created_at: string;
 }
 
+export interface UserPerfume {
+  id: string;
+  user_id: string;
+  name: string;
+  brand: string;
+  year: number | null;
+  description: string | null;
+  top_notes: string[];
+  heart_notes: string[];
+  base_notes: string[];
+  fragrance_family: string[];
+  gender: string | null;
+  image_url: string | null;
+  product_type: string | null;
+  created_at: string;
+}
+
 export interface BottleSizePrice {
   size: string;
   price_min: number | null;
@@ -33,6 +50,7 @@ export interface CollectionItem {
   user_id: string;
   perfume_id: string;
   perfume?: Perfume;
+  user_perfume?: UserPerfume;
   collection_type: "closet" | "wishlist" | "owned_before";
   bottle_sizes: string[];
   size_prices: BottleSizePrice[];
@@ -139,7 +157,7 @@ export interface PriceResult {
   source?: string;
 }
 
-export type BeautyCategory = "skincare" | "bodycare" | "haircare" | "candle" | "home_fragrance" | "other";
+export type BeautyCategory = "skincare" | "bodycare" | "haircare" | "candle" | "home_fragrance" | "fragrance" | "other";
 
 export interface BeautyProduct {
   id?: string;

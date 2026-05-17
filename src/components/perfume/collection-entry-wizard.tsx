@@ -343,25 +343,38 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
         } catch { /* non-critical — fall back to original external URL */ }
       }
 
-      // Upsert perfume
-      const { data: perfumeData, error: perfumeErr } = await supabase
+      // Look up perfume in the public catalog first; if not found, save to user_perfumes
+      const { data: publicPerfume } = await supabase
         .from("perfumes")
-        .upsert({
-          name: selected.name,
-          brand: selected.brand,
-          year: selected.year,
-          description: selected.description,
-          top_notes: selected.top_notes || [],
-          heart_notes: selected.heart_notes || [],
-          base_notes: selected.base_notes || [],
-          fragrance_family: selected.fragrance_family || [],
-          gender: selected.gender,
-          image_url: imageUrl,
-        }, { onConflict: "name,brand", ignoreDuplicates: false })
-        .select()
-        .single();
+        .select("id")
+        .eq("name", selected.name)
+        .eq("brand", selected.brand)
+        .maybeSingle();
 
-      if (perfumeErr) throw perfumeErr;
+      let perfumeId: string | null = publicPerfume?.id ?? null;
+      let userPerfumeId: string | null = null;
+
+      if (!perfumeId) {
+        const { data: up, error: upErr } = await supabase
+          .from("user_perfumes")
+          .upsert({
+            user_id: user.id,
+            name: selected.name,
+            brand: selected.brand,
+            year: selected.year ?? null,
+            description: selected.description ?? null,
+            top_notes: selected.top_notes || [],
+            heart_notes: selected.heart_notes || [],
+            base_notes: selected.base_notes || [],
+            fragrance_family: selected.fragrance_family || [],
+            gender: selected.gender ?? null,
+            image_url: imageUrl,
+          }, { onConflict: "user_id,name,brand" })
+          .select("id")
+          .single();
+        if (upErr) throw upErr;
+        userPerfumeId = up.id;
+      }
 
       const effectiveSizes = resolvedSizes(selectedSizes, customMl);
       const sizesPrices = effectiveSizes.map((s) => ({
@@ -373,7 +386,7 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
 
       const { error: itemErr } = await supabase.from("collection_items").insert({
         user_id: user.id,
-        perfume_id: perfumeData.id,
+        ...(perfumeId ? { perfume_id: perfumeId } : { user_perfume_id: userPerfumeId }),
         collection_type: collection,
         bottle_sizes: effectiveSizes,
         size_prices: sizesPrices,

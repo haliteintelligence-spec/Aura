@@ -12,7 +12,7 @@ import type { ScentLog } from "@/lib/types";
 export default function InsightsPage() {
   const { user } = useUser();
   const [logs, setLogs] = useState<ScentLog[]>([]);
-  const [items, setItems] = useState<{ id: string; perfume: { name: string; brand: string } | null }[]>([]);
+  const [items, setItems] = useState<{ id: string; perfume: { name: string; brand: string } | null; user_perfume: { name: string; brand: string } | null }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -20,7 +20,7 @@ export default function InsightsPage() {
     const supabase = createClient();
     Promise.all([
       supabase.from("scent_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }),
-      supabase.from("collection_items").select("id, perfume:perfumes(name, brand)").eq("user_id", user.id),
+      supabase.from("collection_items").select("id, perfume:perfumes(name, brand), user_perfume:user_perfumes(name, brand)").eq("user_id", user.id),
     ]).then(([{ data: logData }, { data: itemData }]) => {
       setLogs((logData as ScentLog[]) ?? []);
       setItems((itemData as any[]) ?? []);
@@ -58,7 +58,7 @@ export default function InsightsPage() {
     );
   }
 
-  const itemMap = Object.fromEntries(items.map((i) => [i.id, i.perfume]));
+  const itemMap = Object.fromEntries(items.map((i) => [i.id, i.perfume ?? i.user_perfume]));
 
   // Most worn
   const wornCount: Record<string, number> = {};

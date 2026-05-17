@@ -24,13 +24,13 @@ export default function SwapPage() {
     const [{ data: all }, { data: mine }] = await Promise.all([
       supabase
         .from("swap_listings")
-        .select("*, collection_item:collection_items(*, perfume:perfumes(*))")
+        .select("*, collection_item:collection_items(*, perfume:perfumes(*), user_perfume:user_perfumes(*))")
         .eq("status", "available")
         .order("created_at", { ascending: false }),
       user
         ? supabase
             .from("swap_listings")
-            .select("*, collection_item:collection_items(*, perfume:perfumes(*))")
+            .select("*, collection_item:collection_items(*, perfume:perfumes(*), user_perfume:user_perfumes(*))")
             .eq("user_id", user.id)
             .order("created_at", { ascending: false })
         : Promise.resolve({ data: [] }),
@@ -49,7 +49,7 @@ export default function SwapPage() {
   }
 
   const SwapCard = ({ listing }: { listing: SwapListing }) => {
-    const perfume = listing.collection_item?.perfume;
+    const perfume = listing.collection_item?.perfume ?? listing.collection_item?.user_perfume;
     return (
       <div className="bg-card border border-border rounded-2xl overflow-hidden">
         <div className="flex gap-3 p-3">

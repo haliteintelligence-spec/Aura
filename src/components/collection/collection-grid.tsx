@@ -35,35 +35,44 @@ export function CollectionGrid({ collectionType, title }: CollectionGridProps) {
   const [sort, setSort] = useState<SortOption>("brand_asc");
 
   const backfillMissing = useCallback(async (loaded: CollectionItem[]) => {
-    const toFill = loaded.filter((i) => i.perfume && (!i.perfume.image_url || !i.perfume.top_notes?.length));
+    const toFill = loaded.filter((i) => {
+      const p = i.perfume ?? i.user_perfume;
+      return p && (!p.image_url || !p.top_notes?.length);
+    });
     if (toFill.length === 0) return;
 
     const supabase = createClient();
     for (const item of toFill) {
-      if (!item.perfume) continue;
+      const p = item.perfume ?? item.user_perfume;
+      if (!p) continue;
       try {
         const res = await fetch("/api/perfume/details", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: item.perfume.name, brand: item.perfume.brand }),
+          body: JSON.stringify({ name: p.name, brand: p.brand }),
         });
         if (!res.ok) continue;
         const details = await res.json();
 
         const updates: Record<string, unknown> = {};
-        if (details.image_url && !item.perfume.image_url) updates.image_url = details.image_url;
-        if (details.top_notes?.length && !item.perfume.top_notes?.length) updates.top_notes = details.top_notes;
-        if (details.heart_notes?.length && !item.perfume.heart_notes?.length) updates.heart_notes = details.heart_notes;
-        if (details.base_notes?.length && !item.perfume.base_notes?.length) updates.base_notes = details.base_notes;
-        if (details.description && !item.perfume.description) updates.description = details.description;
+        if (details.image_url && !p.image_url) updates.image_url = details.image_url;
+        if (details.top_notes?.length && !p.top_notes?.length) updates.top_notes = details.top_notes;
+        if (details.heart_notes?.length && !p.heart_notes?.length) updates.heart_notes = details.heart_notes;
+        if (details.base_notes?.length && !p.base_notes?.length) updates.base_notes = details.base_notes;
+        if (details.description && !p.description) updates.description = details.description;
 
         if (Object.keys(updates).length === 0) continue;
 
-        await supabase.from("perfumes").update(updates).eq("id", item.perfume.id);
+        const table = item.user_perfume ? "user_perfumes" : "perfumes";
+        await supabase.from(table).update(updates).eq("id", p.id);
         setItems((prev) =>
-          prev.map((i) =>
-            i.perfume?.id === item.perfume!.id ? { ...i, perfume: { ...i.perfume!, ...updates } } : i
-          )
+          prev.map((i) => {
+            if (item.user_perfume && i.user_perfume?.id === p.id)
+              return { ...i, user_perfume: { ...i.user_perfume!, ...updates } };
+            if (item.perfume && i.perfume?.id === p.id)
+              return { ...i, perfume: { ...i.perfume!, ...updates } };
+            return i;
+          })
         );
       } catch { /* ignore per-item errors */ }
     }
@@ -74,7 +83,7 @@ export function CollectionGrid({ collectionType, title }: CollectionGridProps) {
     const supabase = createClient();
     const { data } = await supabase
       .from("collection_items")
-      .select("*, perfume:perfumes(*)")
+      .select("*, perfume:perfumes(*), user_perfume:user_perfumes(*)")
       .eq("collection_type", collectionType);
     const loaded = (data as CollectionItem[]) ?? [];
     setItems(loaded);
@@ -84,32 +93,28 @@ export function CollectionGrid({ collectionType, title }: CollectionGridProps) {
 
   useEffect(() => { load(); }, [load]);
 
-  const allBrands = [...new Set(items.map((i) => i.perfume?.brand).filter(Boolean) as string[])].sort();
-  const allNotes = [...new Set(items.flatMap((i) => [
-    ...(i.perfume?.top_notes ?? []),
-    ...(i.perfume?.heart_notes ?? []),
-    ...(i.perfume?.base_notes ?? []),
-  ]))].sort();
+  const allBrands = [...new Set(items.map((i) => (i.perfume ?? i.user_perfume)?.brand).filter(Boolean) as string[])].sort();
+  const allNotes = [...new Set(items.flatMap((i) => {
+    const p = i.perfume ?? i.user_perfume;
+    return [...(p?.top_notes ?? []), ...(p?.heart_notes ?? []), ...(p?.base_notes ?? [])];
+  }))].sort();
 
   const filtered = items
     .filter((item) => {
-      if (filterBrands.length > 0 && !filterBrands.includes(item.perfume?.brand ?? "")) return false;
+      const p = item.perfume ?? item.user_perfume;
+      if (filterBrands.length > 0 && !filterBrands.includes(p?.brand ?? "")) return false;
       if (filterSeasons.length > 0 && !filterSeasons.some((s) => item.seasons?.includes(s))) return false;
-      if (filterFamilies.length > 0 && !filterFamilies.some((f) => item.perfume?.fragrance_family?.includes(f))) return false;
+      if (filterFamilies.length > 0 && !filterFamilies.some((f) => p?.fragrance_family?.includes(f))) return false;
       if (filterNotes.length > 0) {
-        const itemNotes = [
-          ...(item.perfume?.top_notes ?? []),
-          ...(item.perfume?.heart_notes ?? []),
-          ...(item.perfume?.base_notes ?? []),
-        ];
+        const itemNotes = [...(p?.top_notes ?? []), ...(p?.heart_notes ?? []), ...(p?.base_notes ?? [])];
         if (!filterNotes.some((n) => itemNotes.includes(n))) return false;
       }
       return true;
     })
     .sort((a, b) => {
       switch (sort) {
-        case "brand_asc": return (a.perfume?.brand ?? "").localeCompare(b.perfume?.brand ?? "");
-        case "brand_desc": return (b.perfume?.brand ?? "").localeCompare(a.perfume?.brand ?? "");
+        case "brand_asc": return ((a.perfume ?? a.user_perfume)?.brand ?? "").localeCompare((b.perfume ?? b.user_perfume)?.brand ?? "");
+        case "brand_desc": return ((b.perfume ?? b.user_perfume)?.brand ?? "").localeCompare((a.perfume ?? a.user_perfume)?.brand ?? "");
         case "rating_desc": return (b.rating ?? 0) - (a.rating ?? 0);
         case "rating_asc": return (a.rating ?? 0) - (b.rating ?? 0);
         case "date_desc": return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();

@@ -20,7 +20,7 @@ export async function checkAndAwardBadges(userId: string): Promise<void> {
     supabase.from("scent_logs").select("*", { count: "exact", head: true }).eq("user_id", userId),
     supabase.from("layer_combos").select("*", { count: "exact", head: true }).eq("user_id", userId),
     supabase.from("swap_listings").select("*", { count: "exact", head: true }).eq("user_id", userId),
-    supabase.from("collection_items").select("perfume:perfumes(fragrance_family)").eq("user_id", userId),
+    supabase.from("collection_items").select("perfume:perfumes(fragrance_family), user_perfume:user_perfumes(fragrance_family)").eq("user_id", userId),
     supabase.from("scent_logs").select("created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(60),
   ]);
 
@@ -31,7 +31,7 @@ export async function checkAndAwardBadges(userId: string): Promise<void> {
   // Count distinct fragrance families
   const familiesSet = new Set<string>();
   for (const item of familyItems ?? []) {
-    const perfume = item.perfume as { fragrance_family?: string[] } | null;
+    const perfume = (item.perfume ?? item.user_perfume) as { fragrance_family?: string[] } | null;
     for (const f of perfume?.fragrance_family ?? []) familiesSet.add(f);
   }
 
@@ -94,13 +94,13 @@ export async function getUserProgress(userId: string) {
     supabase.from("scent_logs").select("*", { count: "exact", head: true }).eq("user_id", userId),
     supabase.from("layer_combos").select("*", { count: "exact", head: true }).eq("user_id", userId),
     supabase.from("swap_listings").select("*", { count: "exact", head: true }).eq("user_id", userId),
-    supabase.from("collection_items").select("perfume:perfumes(fragrance_family)").eq("user_id", userId),
+    supabase.from("collection_items").select("perfume:perfumes(fragrance_family), user_perfume:user_perfumes(fragrance_family)").eq("user_id", userId),
     supabase.from("scent_logs").select("created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(60),
   ]);
 
   const familiesSet = new Set<string>();
   for (const item of familyItems ?? []) {
-    const perfume = item.perfume as { fragrance_family?: string[] } | null;
+    const perfume = (item.perfume ?? item.user_perfume) as { fragrance_family?: string[] } | null;
     for (const f of perfume?.fragrance_family ?? []) familiesSet.add(f);
   }
 
