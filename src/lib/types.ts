@@ -59,6 +59,16 @@ export interface ScentLog {
   rating: number;
   duration: string;
   notes: string | null;
+  got_compliment: boolean;
+  created_at: string;
+}
+
+export interface ComplimentEntry {
+  id: string;
+  user_id: string;
+  collection_item_ids: string[];
+  perfume_names: string[];
+  date: string;
   created_at: string;
 }
 

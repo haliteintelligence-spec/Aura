@@ -11,7 +11,7 @@ import { useUser } from "@/hooks/use-user";
 import { format, subDays } from "date-fns";
 import Link from "next/link";
 import Image from "next/image";
-import { Droplets, Sparkles, BookOpen, Plus, ChevronRight, User, Layers, Loader2 } from "lucide-react";
+import { Droplets, Sparkles, BookOpen, Plus, ChevronRight, User, Layers, Loader2, MessageCircleHeart } from "lucide-react";
 import type { ScentLog } from "@/lib/types";
 import { cn, BOTTLE_SIZES, SEASONS, OCCASIONS, PRODUCT_LEVELS, COLLECTION_TYPES, proxyImageUrl } from "@/lib/utils";
 import { toast } from "sonner";
@@ -331,6 +331,22 @@ export default function HomePage() {
                   </div>
                 </Link>
               ))}
+            </div>
+
+            {/* Compliment tracker CTA */}
+            <div className="px-4 pb-4">
+              <Link href="/compliment-tracker">
+                <div className="bg-gradient-to-r from-primary/10 to-plum-100 border border-primary/20 rounded-2xl p-4 flex items-center gap-3 hover:border-primary/40 transition-colors">
+                  <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                    <MessageCircleHeart className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold">Compliment Tracker</p>
+                    <p className="text-xs text-muted-foreground">See which scents turn heads</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                </div>
+              </Link>
             </div>
 
             {/* Seasonal patterns */}

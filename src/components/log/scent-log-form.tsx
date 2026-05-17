@@ -10,7 +10,7 @@ import { MOODS, EVENT_TYPES, DURATION_RANGES, cn } from "@/lib/utils";
 import type { CollectionItem } from "@/lib/types";
 import { PerfumeSelect } from "@/components/ui/perfume-select";
 import { toast } from "sonner";
-import { Loader2, CheckCircle2 } from "lucide-react";
+import { Loader2, CheckCircle2, MessageCircleHeart } from "lucide-react";
 import { format } from "date-fns";
 
 interface ScentLogFormProps {
@@ -25,6 +25,7 @@ export function ScentLogForm({ onSaved }: ScentLogFormProps) {
   const [rating, setRating] = useState(5);
   const [duration, setDuration] = useState("");
   const [notes, setNotes] = useState("");
+  const [gotCompliment, setGotCompliment] = useState(false);
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
 
@@ -55,10 +56,11 @@ export function ScentLogForm({ onSaved }: ScentLogFormProps) {
         rating,
         duration,
         notes: notes || null,
+        got_compliment: gotCompliment,
       });
 
       if (error) throw error;
-      toast.success("Scent logged!");
+      toast.success(gotCompliment ? "Scent logged — compliment recorded! 💬" : "Scent logged!");
       checkAndAwardBadges(user.id);
       setDone(true);
       onSaved?.();
@@ -75,7 +77,7 @@ export function ScentLogForm({ onSaved }: ScentLogFormProps) {
         <CheckCircle2 className="w-14 h-14 text-primary" />
         <p className="font-display text-xl">Logged!</p>
         <p className="text-sm text-muted-foreground">Your scent has been recorded.</p>
-        <Button variant="outline" onClick={() => { setDone(false); setSelectedIds([]); setMood([]); setEventTypes([]); setRating(5); setDuration(""); setNotes(""); }}>
+        <Button variant="outline" onClick={() => { setDone(false); setSelectedIds([]); setMood([]); setEventTypes([]); setRating(5); setDuration(""); setNotes(""); setGotCompliment(false); }}>
           Log another
         </Button>
       </div>
@@ -148,6 +150,26 @@ export function ScentLogForm({ onSaved }: ScentLogFormProps) {
           rows={3}
         />
       </div>
+
+      {/* Compliment toggle */}
+      <button
+        type="button"
+        onClick={() => setGotCompliment((v) => !v)}
+        className={cn(
+          "w-full flex items-center gap-3 p-4 rounded-2xl border transition-colors text-left",
+          gotCompliment ? "bg-primary/10 border-primary/40" : "bg-card border-border"
+        )}
+      >
+        <MessageCircleHeart className={cn("w-5 h-5 shrink-0", gotCompliment ? "text-primary" : "text-muted-foreground")} />
+        <div className="flex-1">
+          <p className={cn("text-sm font-medium", gotCompliment && "text-primary")}>Got a compliment today?</p>
+          <p className="text-xs text-muted-foreground">Tap to record — tracked in your Compliment Tracker</p>
+        </div>
+        <div className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors",
+          gotCompliment ? "bg-primary border-primary" : "border-muted-foreground/40")}>
+          {gotCompliment && <div className="w-2.5 h-2.5 rounded-full bg-white" />}
+        </div>
+      </button>
 
       <Button className="w-full h-12 text-base" onClick={save} disabled={saving}>
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Log Today's Scent"}
