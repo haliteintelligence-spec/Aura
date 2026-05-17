@@ -111,7 +111,7 @@ export function EditItemDialog({ item, open, onClose, onSaved }: EditItemDialogP
       if (error) throw error;
 
       // Notify when bottle crosses down through the ¼ threshold
-      const oldFraction = levelToFraction(item.estimated_level ?? "full");
+      const oldFraction = levelToFraction(item?.estimated_level ?? "full");
       const newFraction = levelToFraction(level);
       if (newFraction <= 0.25 && oldFraction > 0.25) {
         const body = level === "1/8" ? "Only ⅛ left — almost gone!" : "¼ remaining — consider reordering soon.";
