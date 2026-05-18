@@ -103,13 +103,13 @@ export function ScentLogForm({ onSaved, initialItemIds = [], initialMood = [], i
       {/* Mood */}
       <div className="space-y-2">
         <label className="text-sm font-semibold">Mood</label>
-        <MultiSelect options={MOODS} value={mood} onChange={setMood} placeholder="How are you feeling?" />
+        <MultiSelect chips options={MOODS} value={mood} onChange={setMood} placeholder="How are you feeling?" />
       </div>
 
       {/* Event */}
       <div className="space-y-2">
         <label className="text-sm font-semibold">Occasion</label>
-        <MultiSelect options={OCCASIONS} value={eventTypes} onChange={setEventTypes} placeholder="Select occasions…" />
+        <MultiSelect chips options={OCCASIONS} value={eventTypes} onChange={setEventTypes} placeholder="Select occasions…" />
       </div>
 
       {/* Duration */}

@@ -230,15 +230,15 @@ export default function LayeringPage() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Occasion</label>
-                <MultiSelect options={OCCASIONS} value={genOccasion} onChange={setGenOccasion} placeholder="Any occasion…" />
+                <MultiSelect chips options={OCCASIONS} value={genOccasion} onChange={setGenOccasion} placeholder="Any occasion…" />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Season</label>
-                <MultiSelect options={SEASONS} value={genSeason} onChange={setGenSeason} placeholder="Any season…" />
+                <MultiSelect chips options={SEASONS} value={genSeason} onChange={setGenSeason} placeholder="Any season…" />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Mood</label>
-                <MultiSelect options={MOODS} value={genMood} onChange={setGenMood} placeholder="Any mood…" />
+                <MultiSelect chips options={MOODS} value={genMood} onChange={setGenMood} placeholder="Any mood…" />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Number of fragrances</label>

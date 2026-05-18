@@ -243,7 +243,7 @@ function EditLogDialog({
           {/* Mood */}
           <div className="space-y-2">
             <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Mood</label>
-            <MultiSelect options={MOODS} value={mood} onChange={setMood} placeholder="How were you feeling?" />
+            <MultiSelect chips options={MOODS} value={mood} onChange={setMood} placeholder="How were you feeling?" />
           </div>
 
           {/* Occasion */}

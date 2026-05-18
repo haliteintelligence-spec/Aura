@@ -13,6 +13,7 @@ interface MultiSelectProps {
   placeholder?: string;
   className?: string;
   maxHeight?: string;
+  chips?: boolean;
 }
 
 export function MultiSelect({
@@ -22,9 +23,32 @@ export function MultiSelect({
   placeholder = "Select…",
   className,
   maxHeight = "240px",
+  chips = false,
 }: MultiSelectProps) {
   function toggle(opt: string) {
     onChange(value.includes(opt) ? value.filter((v) => v !== opt) : [...value, opt]);
+  }
+
+  if (chips) {
+    return (
+      <div className={cn("flex flex-wrap gap-1.5", className)}>
+        {options.map((opt) => (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => toggle(opt)}
+            className={cn(
+              "px-3 py-1.5 rounded-lg text-xs border transition-colors",
+              value.includes(opt)
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-background border-border text-foreground hover:border-primary/50"
+            )}
+          >
+            {opt}
+          </button>
+        ))}
+      </div>
+    );
   }
 
   return (

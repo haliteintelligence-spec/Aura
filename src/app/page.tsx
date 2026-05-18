@@ -536,13 +536,13 @@ export default function HomePage() {
                 {/* Seasons */}
                 <div className="space-y-2">
                   <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Seasons</label>
-                  <MultiSelect options={SEASONS} value={addSeasons} onChange={setAddSeasons} placeholder="Select seasons…" />
+                  <MultiSelect chips options={SEASONS} value={addSeasons} onChange={setAddSeasons} placeholder="Select seasons…" />
                 </div>
 
                 {/* Occasions */}
                 <div className="space-y-2">
                   <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Occasions</label>
-                  <MultiSelect options={OCCASIONS} value={addOccasions} onChange={setAddOccasions} placeholder="Select occasions…" />
+                  <MultiSelect chips options={OCCASIONS} value={addOccasions} onChange={setAddOccasions} placeholder="Select occasions…" />
                 </div>
 
                 {/* Rating */}
