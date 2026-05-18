@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
 import { SEASONS, FRAGRANCE_FAMILIES } from "@/lib/utils";
-import type { CollectionItem } from "@/lib/types";
+import type { CollectionItem, BottleSizePrice } from "@/lib/types";
 import { SlidersHorizontal, Plus, ArrowUpDown, Loader2 } from "lucide-react";
 import Link from "next/link";
 import type { CollectionType } from "@/lib/utils";
@@ -35,13 +35,13 @@ export function CollectionGrid({ collectionType, title }: CollectionGridProps) {
   const [sort, setSort] = useState<SortOption>("brand_asc");
 
   const backfillMissing = useCallback(async (loaded: CollectionItem[]) => {
+    const supabase = createClient();
+
+    // Backfill missing image / notes
     const toFill = loaded.filter((i) => {
       const p = i.perfume ?? i.user_perfume;
       return p && (!p.image_url || !p.top_notes?.length);
     });
-    if (toFill.length === 0) return;
-
-    const supabase = createClient();
     for (const item of toFill) {
       const p = item.perfume ?? item.user_perfume;
       if (!p) continue;
@@ -74,6 +74,38 @@ export function CollectionGrid({ collectionType, title }: CollectionGridProps) {
             return i;
           })
         );
+      } catch { /* ignore per-item errors */ }
+    }
+
+    // Backfill missing prices
+    const toPriceFill = loaded.filter(
+      (i) => (!i.size_prices || i.size_prices.length === 0) && (i.bottle_sizes?.length ?? 0) > 0
+    );
+    for (const item of toPriceFill) {
+      const p = item.perfume ?? item.user_perfume;
+      if (!p) continue;
+      try {
+        const res = await fetch("/api/perfume/price", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: p.name,
+            brand: p.brand,
+            sizes: item.bottle_sizes,
+            perfumeId: item.perfume?.id,
+          }),
+        });
+        if (!res.ok) continue;
+        const data = await res.json();
+        if (!data.prices?.length) continue;
+        const sizePrices: BottleSizePrice[] = (data.prices as Array<{ size: string; price_min: number; price_max: number; currency: string }>).map((pr) => ({
+          size: pr.size,
+          price_min: pr.price_min,
+          price_max: pr.price_max,
+          currency: pr.currency ?? "USD",
+        }));
+        await supabase.from("collection_items").update({ size_prices: sizePrices }).eq("id", item.id);
+        setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, size_prices: sizePrices } : i));
       } catch { /* ignore per-item errors */ }
     }
   }, []);
