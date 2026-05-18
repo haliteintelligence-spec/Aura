@@ -58,8 +58,12 @@ export function MultiSelect({
           <ChevronDown className="w-4 h-4 text-muted-foreground ml-auto shrink-0" />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-64 p-2" align="start">
-        <div className="overflow-y-auto" style={{ maxHeight }}>
+      <PopoverContent
+        className="w-64 p-2 flex flex-col overflow-hidden"
+        align="start"
+        style={{ maxHeight: `min(${maxHeight}, var(--radix-popper-available-height, 400px))` }}
+      >
+        <div className="overflow-y-auto flex-1 min-h-0">
           <div className="space-y-1 pr-2">
             {options.map((opt) => (
               <label
@@ -77,7 +81,7 @@ export function MultiSelect({
           </div>
         </div>
         {value.length > 0 && (
-          <div className="pt-2 border-t border-border mt-2">
+          <div className="pt-2 border-t border-border mt-2 shrink-0">
             <Button variant="ghost" size="sm" className="w-full h-7 text-xs" onClick={() => onChange([])}>
               Clear all
             </Button>
