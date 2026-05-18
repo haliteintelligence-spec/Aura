@@ -2,7 +2,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { ChevronDown, X } from "lucide-react";
@@ -60,7 +59,7 @@ export function MultiSelect({
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-64 p-2" align="start">
-        <ScrollArea style={{ maxHeight }}>
+        <div className="overflow-y-auto" style={{ maxHeight }}>
           <div className="space-y-1 pr-2">
             {options.map((opt) => (
               <label
@@ -76,7 +75,7 @@ export function MultiSelect({
               </label>
             ))}
           </div>
-        </ScrollArea>
+        </div>
         {value.length > 0 && (
           <div className="pt-2 border-t border-border mt-2">
             <Button variant="ghost" size="sm" className="w-full h-7 text-xs" onClick={() => onChange([])}>

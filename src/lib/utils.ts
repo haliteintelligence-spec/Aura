@@ -73,7 +73,6 @@ export const OCCASIONS = [
   "At Home",
   "Bedtime",
   "Special Occasion",
-  "Weekend",
 ];
 
 export const MOODS = [
