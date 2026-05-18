@@ -6,7 +6,7 @@ import { Slider } from "@/components/ui/slider";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { createClient } from "@/lib/supabase/client";
 import { checkAndAwardBadges } from "@/lib/badges";
-import { MOODS, EVENT_TYPES, DURATION_RANGES, cn } from "@/lib/utils";
+import { MOODS, OCCASIONS, DURATION_RANGES, cn } from "@/lib/utils";
 import type { CollectionItem } from "@/lib/types";
 import { PerfumeSelect } from "@/components/ui/perfume-select";
 import { toast } from "sonner";
@@ -109,7 +109,7 @@ export function ScentLogForm({ onSaved, initialItemIds = [], initialMood = [], i
       {/* Event */}
       <div className="space-y-2">
         <label className="text-sm font-semibold">Occasion</label>
-        <MultiSelect options={EVENT_TYPES} value={eventTypes} onChange={setEventTypes} placeholder="Select occasions…" />
+        <MultiSelect options={OCCASIONS} value={eventTypes} onChange={setEventTypes} placeholder="Select occasions…" />
       </div>
 
       {/* Duration */}

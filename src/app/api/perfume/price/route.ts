@@ -43,8 +43,9 @@ function getTargetMl(sizeValue: string): number | null {
 
 interface DbPrice {
   size: string;
-  price_min: number;
-  price_max: number;
+  price?: number;       // legacy single-value format
+  price_min?: number;
+  price_max?: number;
   currency?: string;
 }
 
@@ -65,7 +66,10 @@ function findClosestDbPrice(
   }
 
   if (!best) return null;
-  return { size: requestedSize, price_min: best.price_min, price_max: best.price_max, currency: best.currency ?? "USD" };
+  const priceMin = best.price_min ?? best.price ?? 0;
+  const priceMax = best.price_max ?? best.price ?? 0;
+  if (priceMin === 0) return null;
+  return { size: requestedSize, price_min: priceMin, price_max: priceMax, currency: best.currency ?? "USD" };
 }
 
 // ── Price extraction from page HTML ──────────────────────────────────────────
@@ -357,7 +361,7 @@ export async function POST(request: NextRequest) {
   } catch { /* fall through to scraping */ }
 
   // 1. Brand's own website
-  try {
+  if (remaining.length > 0) try {
     const domain = await getBrandDomain(brand);
     if (domain) {
       const productUrl = await findProductUrl(domain, name, brand);

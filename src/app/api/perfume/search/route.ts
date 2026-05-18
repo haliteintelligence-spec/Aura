@@ -51,7 +51,7 @@ async function searchDatabase(brand?: string, name?: string): Promise<PerfumeSea
     const supabase = await createClient();
     let query = supabase
       .from("perfumes")
-      .select("name,brand,year,description,top_notes,heart_notes,base_notes,fragrance_family,gender,image_url,prices")
+      .select("id,name,brand,year,description,top_notes,heart_notes,base_notes,fragrance_family,gender,image_url,prices")
       .limit(40);
 
     if (brand && name) {
