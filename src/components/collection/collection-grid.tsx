@@ -113,8 +113,16 @@ export function CollectionGrid({ collectionType, title }: CollectionGridProps) {
     })
     .sort((a, b) => {
       switch (sort) {
-        case "brand_asc": return ((a.perfume ?? a.user_perfume)?.brand ?? "").localeCompare((b.perfume ?? b.user_perfume)?.brand ?? "");
-        case "brand_desc": return ((b.perfume ?? b.user_perfume)?.brand ?? "").localeCompare((a.perfume ?? a.user_perfume)?.brand ?? "");
+        case "brand_asc": {
+          const brandCmp = ((a.perfume ?? a.user_perfume)?.brand ?? "").localeCompare((b.perfume ?? b.user_perfume)?.brand ?? "");
+          if (brandCmp !== 0) return brandCmp;
+          return ((a.perfume ?? a.user_perfume)?.name ?? "").localeCompare((b.perfume ?? b.user_perfume)?.name ?? "");
+        }
+        case "brand_desc": {
+          const brandCmp = ((b.perfume ?? b.user_perfume)?.brand ?? "").localeCompare((a.perfume ?? a.user_perfume)?.brand ?? "");
+          if (brandCmp !== 0) return brandCmp;
+          return ((a.perfume ?? a.user_perfume)?.name ?? "").localeCompare((b.perfume ?? b.user_perfume)?.name ?? "");
+        }
         case "rating_desc": return (b.rating ?? 0) - (a.rating ?? 0);
         case "rating_asc": return (a.rating ?? 0) - (b.rating ?? 0);
         case "date_desc": return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
