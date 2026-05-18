@@ -273,7 +273,7 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
       const res = await fetch("/api/perfume/price", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: selected.name, brand: selected.brand, sizes }),
+        body: JSON.stringify({ name: selected.name, brand: selected.brand, sizes, perfumeId: selected.id }),
       });
       const data = await res.json();
       const map: Record<string, { min: number; max: number }> = {};

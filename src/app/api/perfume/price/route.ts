@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import { openai, MODEL_MINI } from "@/lib/openai";
 import { BOTTLE_SIZES } from "@/lib/utils";
 
@@ -33,6 +34,38 @@ function sizeMatches(sizeValue: string, variantText: string): boolean {
   const variantMl = parseMlFromText(t);
   if (variantMl !== null) return Math.abs(variantMl - targetMl) / targetMl < 0.08;
   return false;
+}
+
+function getTargetMl(sizeValue: string): number | null {
+  if (SIZE_ML[sizeValue] !== undefined) return SIZE_ML[sizeValue];
+  return parseMlFromText(sizeValue); // handles custom inputs like "75ml"
+}
+
+interface DbPrice {
+  size: string;
+  price_min: number;
+  price_max: number;
+  currency?: string;
+}
+
+function findClosestDbPrice(
+  requestedSize: string,
+  dbPrices: DbPrice[]
+): { size: string; price_min: number; price_max: number; currency: string } | null {
+  const targetMl = getTargetMl(requestedSize);
+  if (targetMl === null || dbPrices.length === 0) return null;
+
+  let best: DbPrice | null = null;
+  let bestDiff = Infinity;
+  for (const entry of dbPrices) {
+    const entryMl = parseMlFromText(entry.size);
+    if (entryMl === null) continue;
+    const diff = Math.abs(entryMl - targetMl);
+    if (diff < bestDiff) { bestDiff = diff; best = entry; }
+  }
+
+  if (!best) return null;
+  return { size: requestedSize, price_min: best.price_min, price_max: best.price_max, currency: best.currency ?? "USD" };
 }
 
 // ── Price extraction from page HTML ──────────────────────────────────────────
@@ -297,7 +330,7 @@ async function getGPTPrices(
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
-  const { name, brand, sizes } = await request.json();
+  const { name, brand, sizes, perfumeId } = await request.json();
 
   if (!name || !brand || !Array.isArray(sizes) || sizes.length === 0) {
     return NextResponse.json({ prices: [] });
@@ -305,6 +338,23 @@ export async function POST(request: NextRequest) {
 
   const allPrices: Array<{ size: string; price_min: number; price_max: number; currency: string }> = [];
   let remaining = [...sizes].filter((s) => s !== "other");
+
+  // 0. DB lookup — find closest stored size price before scraping
+  try {
+    const supabase = await createClient();
+    const { data: dbData } = perfumeId
+      ? await supabase.from("perfumes").select("prices").eq("id", perfumeId).maybeSingle()
+      : await supabase.from("perfumes").select("prices").ilike("name", name).ilike("brand", brand).maybeSingle();
+    if (dbData?.prices && Array.isArray(dbData.prices) && (dbData.prices as DbPrice[]).length > 0) {
+      for (const size of [...remaining]) {
+        const match = findClosestDbPrice(size, dbData.prices as DbPrice[]);
+        if (match) {
+          allPrices.push(match);
+          remaining = remaining.filter((s) => s !== size);
+        }
+      }
+    }
+  } catch { /* fall through to scraping */ }
 
   // 1. Brand's own website
   try {
