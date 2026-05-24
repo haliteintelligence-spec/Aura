@@ -18,12 +18,39 @@ interface PerfumeRow {
   description: string | null;
 }
 
+function collectionKey(name: string, brand: string) {
+  return `${name.trim().toLowerCase()}|${brand.trim().toLowerCase()}`;
+}
+
 export async function POST() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ recommendations: [] });
 
-  // ── 1. Check daily cache ─────────────────────────────────────────────────────
+  // ── 1. Load user's entire collection (all types) — always needed for exclusion ─
+  const { data: collectionItems } = await supabase
+    .from("collection_items")
+    .select("perfume_id, perfume:perfumes(id, name, brand, top_notes, heart_notes, base_notes, fragrance_family), user_perfume:user_perfumes(name, brand, top_notes, heart_notes, base_notes, fragrance_family)")
+    .eq("user_id", user.id);
+
+  // Build exclusion sets: by perfume_id AND by name+brand (catches user_perfumes)
+  const excludedIds = new Set<string>();
+  const excludedKeys = new Set<string>();
+
+  for (const item of collectionItems ?? []) {
+    if (item.perfume_id) excludedIds.add(item.perfume_id);
+    const p = (item.perfume ?? item.user_perfume) as unknown as { id?: string; name: string; brand: string } | null;
+    if (p) {
+      if (p.id) excludedIds.add(p.id);
+      excludedKeys.add(collectionKey(p.name, p.brand));
+    }
+  }
+
+  function isExcluded(p: PerfumeRow) {
+    return excludedIds.has(p.id) || excludedKeys.has(collectionKey(p.name, p.brand));
+  }
+
+  // ── 2. Check daily cache — re-filter against current collection before serving ─
   try {
     const { data: cached } = await supabase
       .from("user_recommendations")
@@ -32,19 +59,10 @@ export async function POST() {
       .single();
 
     if (cached && Date.now() - new Date(cached.updated_at).getTime() < CACHE_TTL_MS) {
-      return NextResponse.json({ recommendations: cached.recommendations });
+      const filtered = (cached.recommendations as PerfumeRow[]).filter((r) => !isExcluded(r));
+      return NextResponse.json({ recommendations: filtered });
     }
-  } catch { /* table may not exist yet or no row — proceed */ }
-
-  // ── 2. Load user's entire collection (all types) ─────────────────────────────
-  const { data: collectionItems } = await supabase
-    .from("collection_items")
-    .select("perfume_id, perfume:perfumes(name, brand, top_notes, heart_notes, base_notes, fragrance_family), user_perfume:user_perfumes(name, brand, top_notes, heart_notes, base_notes, fragrance_family)")
-    .eq("user_id", user.id);
-
-  const excludedPerfumeIds = new Set<string>(
-    (collectionItems ?? []).map((i) => i.perfume_id).filter(Boolean)
-  );
+  } catch { /* no cache row yet — proceed to compute */ }
 
   // ── 3. Build taste profile from collection ───────────────────────────────────
   const noteCounts: Record<string, number> = {};
@@ -65,26 +83,25 @@ export async function POST() {
 
   const topFamilies = Object.entries(familyCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([f]) => f);
 
-  // ── 4. Query DB for candidates not already in collections ────────────────────
+  // ── 4. Query DB for candidates ───────────────────────────────────────────────
   let dbQuery = supabase
     .from("perfumes")
     .select("id, name, brand, top_notes, heart_notes, base_notes, fragrance_family, image_url, description")
     .limit(CANDIDATE_LIMIT);
 
-  // Filter by preferred families if the user has taste data
   if (topFamilies.length > 0) {
     dbQuery = dbQuery.overlaps("fragrance_family", topFamilies);
   }
 
-  // Exclude already-owned perfumes
-  if (excludedPerfumeIds.size > 0) {
-    dbQuery = dbQuery.not("id", "in", `(${[...excludedPerfumeIds].join(",")})`);
+  if (excludedIds.size > 0) {
+    dbQuery = dbQuery.not("id", "in", `(${[...excludedIds].join(",")})`);
   }
 
   const { data: candidates } = await dbQuery;
 
-  // ── 5. Score candidates by taste profile overlap ─────────────────────────────
+  // ── 5. Score, filter, pick ───────────────────────────────────────────────────
   const scored = (candidates as PerfumeRow[] ?? [])
+    .filter((p) => !isExcluded(p))
     .map((p) => {
       let score = 0;
       const allNotes = [...(p.top_notes ?? []), ...(p.heart_notes ?? []), ...(p.base_notes ?? [])];
@@ -96,26 +113,27 @@ export async function POST() {
     .sort((a, b) => b.score - a.score)
     .slice(0, RESULT_COUNT);
 
-  // If DB has no good matches (empty collection / no families match), fall back
-  // to a random sample of DB perfumes not in the user's collection
   let picks = scored;
+
+  // Fallback: fetch more if not enough matches
   if (picks.length < RESULT_COUNT) {
+    const placeholder = "(00000000-0000-0000-0000-000000000000)";
     const { data: fallback } = await supabase
       .from("perfumes")
       .select("id, name, brand, top_notes, heart_notes, base_notes, fragrance_family, image_url, description")
-      .not("id", "in", excludedPerfumeIds.size > 0 ? `(${[...excludedPerfumeIds].join(",")})` : "(00000000-0000-0000-0000-000000000000)")
+      .not("id", "in", excludedIds.size > 0 ? `(${[...excludedIds].join(",")})` : placeholder)
       .limit(RESULT_COUNT - picks.length + 20);
 
-    const fallbackFiltered = (fallback as PerfumeRow[] ?? [])
-      .filter((p) => !picks.some((x) => x.id === p.id))
+    const extra = (fallback as PerfumeRow[] ?? [])
+      .filter((p) => !isExcluded(p) && !picks.some((x) => x.id === p.id))
       .slice(0, RESULT_COUNT - picks.length);
 
-    picks = [...picks, ...fallbackFiltered.map((p) => ({ ...p, score: 0 }))];
+    picks = [...picks, ...extra.map((p) => ({ ...p, score: 0 }))];
   }
 
   if (picks.length === 0) return NextResponse.json({ recommendations: [] });
 
-  // ── 6. GPT: add a short personalised "reason" for each pick ─────────────────
+  // ── 6. GPT: one-sentence reason per pick ─────────────────────────────────────
   const topNotesList = Object.entries(noteCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([n]) => n);
   const topBrandsList = Object.entries(brandCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([b]) => b);
 
@@ -145,9 +163,9 @@ Return JSON: {"reasons": ["reason for 1", "reason for 2", ...]}`,
     const parsed = JSON.parse(completion.choices[0]?.message?.content ?? "{}");
     const reasons: string[] = parsed.reasons ?? [];
     recs = picks.map((p, i) => ({ ...p, reason: reasons[i] ?? undefined }));
-  } catch { /* non-critical — recommendations are still valid without reason text */ }
+  } catch { /* non-critical */ }
 
-  // ── 7. Cache results ─────────────────────────────────────────────────────────
+  // ── 7. Cache ─────────────────────────────────────────────────────────────────
   try {
     await supabase.from("user_recommendations").upsert({
       user_id: user.id,
