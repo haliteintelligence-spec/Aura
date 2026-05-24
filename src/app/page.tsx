@@ -31,7 +31,6 @@ export default function HomePage() {
   const [recentLogs, setRecentLogs] = useState<ScentLog[]>([]);
   const [recommendations, setRecommendations] = useState<Rec[]>([]);
   const [loadingRecs, setLoadingRecs] = useState(false);
-  const [closetCount, setClosetCount] = useState(0);
   const [closetItems, setClosetItems] = useState<CollectionItem[]>([]);
   const [seasonalData, setSeasonalData] = useState<Record<string, { name: string; count: number }[]>>({});
 
@@ -66,9 +65,7 @@ export default function HomePage() {
       .eq("user_id", user.id)
       .eq("collection_type", "closet")
       .then(({ data }) => {
-        const loaded = (data as unknown as CollectionItem[]) ?? [];
-        setClosetCount(loaded.length);
-        setClosetItems(loaded);
+        setClosetItems((data as unknown as CollectionItem[]) ?? []);
       });
 
     // Seasonal usage patterns
@@ -115,33 +112,16 @@ export default function HomePage() {
   }, [user]);
 
   useEffect(() => {
-    if (!user || closetCount === 0) return;
-    const supabase = createClient();
+    if (!user) return;
     setLoadingRecs(true);
-    supabase
-      .from("scent_logs")
-      .select("collection_item_ids")
-      .eq("user_id", user.id)
-      .limit(50)
-      .then(async ({ data: logs }) => {
-        const ids = [...new Set(logs?.flatMap((l) => l.collection_item_ids) ?? [])];
-        if (ids.length === 0) { setLoadingRecs(false); return; }
-        const { data: items } = await supabase
-          .from("collection_items")
-          .select("perfume:perfumes(name, brand), user_perfume:user_perfumes(name, brand)")
-          .in("id", ids.slice(0, 10));
-        const topPerfumes = (items?.map((i: any) => (i.perfume?.[0] ?? i.user_perfume?.[0])?.name).filter(Boolean) as string[]).slice(0, 5);
-        const topBrands = [...new Set(items?.map((i: any) => (i.perfume?.[0] ?? i.user_perfume?.[0])?.brand).filter(Boolean) as string[])].slice(0, 5);
-        const res = await fetch("/api/recommendations", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ topPerfumes, topBrands, topNotes: [], topFamilies: [] }),
-        });
-        const { recommendations: recs } = await res.json();
+    fetch("/api/recommendations", { method: "POST" })
+      .then((r) => r.json())
+      .then(({ recommendations: recs }) => {
         setRecommendations(recs ?? []);
         setLoadingRecs(false);
-      });
-  }, [user, closetCount]);
+      })
+      .catch(() => setLoadingRecs(false));
+  }, [user]);
 
   const logsByDate = recentLogs.reduce<Record<string, ScentLog>>((acc, log) => {
     acc[log.date] = log;
