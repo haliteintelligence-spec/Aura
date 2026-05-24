@@ -6,12 +6,39 @@ import { Slider } from "@/components/ui/slider";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { createClient } from "@/lib/supabase/client";
 import { checkAndAwardBadges } from "@/lib/badges";
-import { MOODS, OCCASIONS, DURATION_RANGES, cn } from "@/lib/utils";
+import { MOODS, OCCASIONS, DURATION_RANGES, BOTTLE_SIZES, fractionToLevel, levelToFraction, cn } from "@/lib/utils";
 import type { CollectionItem } from "@/lib/types";
 import { PerfumeSelect } from "@/components/ui/perfume-select";
 import { toast } from "sonner";
-import { Loader2, CheckCircle2, MessageCircleHeart } from "lucide-react";
+import { Loader2, CheckCircle2, MessageCircleHeart, Droplets } from "lucide-react";
 import { format } from "date-fns";
+import { useRouter } from "next/navigation";
+
+const SPRAY_INTENSITIES = [
+  { value: "gentle",       label: "Gentle",       sub: "2–5 sprays",   sprays: 5  },
+  { value: "average",      label: "Average",      sub: "6–15 sprays",  sprays: 15 },
+  { value: "heavy",        label: "Heavy",        sub: "16–30 sprays", sprays: 30 },
+  { value: "over_the_top", label: "Over the top", sub: "31+ sprays",   sprays: 50 },
+] as const;
+
+type SprayIntensity = typeof SPRAY_INTENSITIES[number]["value"];
+
+const ML_PER_SPRAY = 0.1;
+
+function largestBottleMl(bottleSizes: string[]): number {
+  let best = 0;
+  for (const sizeVal of bottleSizes) {
+    const known = BOTTLE_SIZES.find((b) => b.value === sizeVal);
+    if (known && known.ml > best) { best = known.ml; continue; }
+    // Try parsing custom sizes like "35ml"
+    const match = sizeVal.match(/^(\d+(?:\.\d+)?)ml$/i);
+    if (match) {
+      const ml = parseFloat(match[1]);
+      if (ml > best) best = ml;
+    }
+  }
+  return best;
+}
 
 interface ScentLogFormProps {
   onSaved?: () => void;
@@ -21,8 +48,11 @@ interface ScentLogFormProps {
 }
 
 export function ScentLogForm({ onSaved, initialItemIds = [], initialMood = [], initialOccasions = [] }: ScentLogFormProps) {
+  const router = useRouter();
   const [closetItems, setClosetItems] = useState<CollectionItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>(initialItemIds);
+  // Per-perfume spray intensity: itemId → intensity value
+  const [sprayIntensities, setSprayIntensities] = useState<Record<string, SprayIntensity>>({});
   const [mood, setMood] = useState<string[]>(initialMood);
   const [eventTypes, setEventTypes] = useState<string[]>(initialOccasions);
   const [rating, setRating] = useState(5);
@@ -40,6 +70,76 @@ export function ScentLogForm({ onSaved, initialItemIds = [], initialMood = [], i
       .eq("collection_type", "closet")
       .then(({ data }) => setClosetItems((data as CollectionItem[]) ?? []));
   }, []);
+
+  // Remove intensity entries for deselected items
+  useEffect(() => {
+    setSprayIntensities((prev) => {
+      const next = { ...prev };
+      for (const id of Object.keys(next)) {
+        if (!selectedIds.includes(id)) delete next[id];
+      }
+      return next;
+    });
+  }, [selectedIds]);
+
+  async function updateLevelsAndNotify(userId: string) {
+    const supabase = createClient();
+    const emptied: string[] = [];
+
+    for (const id of selectedIds) {
+      const item = closetItems.find((c) => c.id === id);
+      if (!item) continue;
+
+      const totalMl = largestBottleMl(item.bottle_sizes ?? []);
+      if (totalMl === 0) continue; // unknown size, skip
+
+      const intensity = SPRAY_INTENSITIES.find((s) => s.value === sprayIntensities[id]);
+      if (!intensity) continue; // user didn't select — skip
+
+      const usedMl = intensity.sprays * ML_PER_SPRAY;
+      const currentFraction = levelToFraction(item.estimated_level ?? "full");
+      const newFraction = Math.max(0, currentFraction - usedMl / totalMl);
+      const newLevel = fractionToLevel(newFraction);
+
+      await supabase
+        .from("collection_items")
+        .update({ estimated_level: newLevel })
+        .eq("id", id);
+
+      if (newLevel === "empty") {
+        const perfumeName = (item.perfume ?? item.user_perfume)?.name ?? "A perfume";
+        emptied.push(perfumeName);
+      }
+    }
+
+    if (emptied.length === 0) return;
+
+    // In-app toast prompt
+    for (const name of emptied) {
+      toast(`${name} is empty`, {
+        description: "Move it to Owned Before?",
+        action: { label: "Go to Closet", onClick: () => router.push("/closet") },
+        duration: 8000,
+      });
+    }
+
+    // Push notification
+    try {
+      await fetch("/api/push/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Bottle emptied",
+          body: emptied.length === 1
+            ? `${emptied[0]} is empty — move it to Owned Before?`
+            : `${emptied.join(", ")} are empty — move them to Owned Before?`,
+          url: "/closet",
+        }),
+      });
+    } catch { /* non-critical */ }
+
+    void userId; // used via supabase auth above
+  }
 
   async function save() {
     if (selectedIds.length === 0) { toast.error("Select at least one fragrance"); return; }
@@ -63,8 +163,12 @@ export function ScentLogForm({ onSaved, initialItemIds = [], initialMood = [], i
       });
 
       if (error) throw error;
-      toast.success(gotCompliment ? "Scent logged — compliment recorded! 💬" : "Scent logged!");
+      toast.success(gotCompliment ? "Scent logged — compliment recorded!" : "Scent logged!");
       checkAndAwardBadges(user.id);
+
+      // Update bottle levels (non-blocking)
+      updateLevelsAndNotify(user.id);
+
       setDone(true);
       onSaved?.();
     } catch {
@@ -80,7 +184,17 @@ export function ScentLogForm({ onSaved, initialItemIds = [], initialMood = [], i
         <CheckCircle2 className="w-14 h-14 text-primary" />
         <p className="font-display text-xl">Logged!</p>
         <p className="text-sm text-muted-foreground">Your scent has been recorded.</p>
-        <Button variant="outline" onClick={() => { setDone(false); setSelectedIds([]); setMood([]); setEventTypes([]); setRating(5); setDuration(""); setNotes(""); setGotCompliment(false); }}>
+        <Button variant="outline" onClick={() => {
+          setDone(false);
+          setSelectedIds([]);
+          setSprayIntensities({});
+          setMood([]);
+          setEventTypes([]);
+          setRating(5);
+          setDuration("");
+          setNotes("");
+          setGotCompliment(false);
+        }}>
           Log another
         </Button>
       </div>
@@ -99,6 +213,46 @@ export function ScentLogForm({ onSaved, initialItemIds = [], initialMood = [], i
           <PerfumeSelect items={closetItems} value={selectedIds} onChange={setSelectedIds} placeholder="Search and select fragrances…" />
         )}
       </div>
+
+      {/* Per-perfume spray intensity */}
+      {selectedIds.length > 0 && (
+        <div className="space-y-4">
+          <label className="text-sm font-semibold">How did you spray each fragrance?</label>
+          {selectedIds.map((id) => {
+            const item = closetItems.find((c) => c.id === id);
+            const perfumeName = (item?.perfume ?? item?.user_perfume)?.name ?? "Unknown";
+            const selected = sprayIntensities[id];
+            return (
+              <div key={id} className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Droplets className="w-3.5 h-3.5 text-primary shrink-0" />
+                  <p className="text-xs font-medium truncate">{perfumeName}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {SPRAY_INTENSITIES.map((intensity) => (
+                    <button
+                      key={intensity.value}
+                      type="button"
+                      onClick={() => setSprayIntensities((prev) => ({ ...prev, [id]: intensity.value }))}
+                      className={cn(
+                        "px-3 py-2 rounded-xl text-left border transition-colors",
+                        selected === intensity.value
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background border-border hover:border-primary/50"
+                      )}
+                    >
+                      <p className="text-xs font-medium">{intensity.label}</p>
+                      <p className={cn("text-[10px]", selected === intensity.value ? "text-primary-foreground/80" : "text-muted-foreground")}>
+                        {intensity.sub}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Mood */}
       <div className="space-y-2">
