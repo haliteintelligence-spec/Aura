@@ -92,8 +92,8 @@ export default function ProfilePage() {
     return { value, label, total, count: typeItems.length };
   });
 
-  // Low level items (≤3/8)
-  const lowItems = items.filter((i) => i.collection_type === "closet" && levelToFraction(i.estimated_level) <= 0.375);
+  // Low level items (≤1/4)
+  const lowItems = items.filter((i) => i.collection_type === "closet" && levelToFraction(i.estimated_level) <= 0.25);
 
   // Scent map data
   const familyCounts: Record<string, number> = {};
@@ -192,33 +192,21 @@ export default function ProfilePage() {
           </div>
         </section>
 
-        {/* Low level alert */}
-        {lowItems.length > 0 && (
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-500" />
-              <h2 className="font-display text-base">Running Low</h2>
+        {/* Running low button */}
+        <Link href="/running-low">
+          <div className={`bg-card border rounded-xl p-4 flex items-center justify-between hover:border-primary/30 transition-colors ${lowItems.length > 0 ? "border-amber-300" : "border-border"}`}>
+            <div className="flex items-center gap-3">
+              <AlertTriangle className={`w-4 h-4 ${lowItems.length > 0 ? "text-amber-500" : "text-muted-foreground"}`} />
+              <div>
+                <p className="text-sm font-medium">Running Low</p>
+                <p className="text-xs text-muted-foreground">
+                  {lowItems.length > 0 ? `${lowItems.length} bottle${lowItems.length !== 1 ? "s" : ""} at ¼ or less` : "All bottles well-stocked"}
+                </p>
+              </div>
             </div>
-            <div className="space-y-2">
-              {lowItems.map((item) => (
-                <div key={item.id} className="bg-card border border-amber-200 rounded-xl p-3 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-plum-50 flex items-center justify-center shrink-0">
-                    {(item.perfume ?? item.user_perfume)?.image_url ? (
-                      <Image src={(item.perfume ?? item.user_perfume)!.image_url!} alt="" width={40} height={40} className="object-contain" unoptimized />
-                    ) : (
-                      <Droplets className="w-5 h-5 text-plum-300" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{(item.perfume ?? item.user_perfume)?.name}</p>
-                    <Progress value={Math.round(levelToFraction(item.estimated_level) * 100)} className="h-1.5 mt-1" />
-                    <p className="text-[10px] text-muted-foreground mt-0.5">{item.estimated_level} remaining</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
+            <ChevronRight className="w-4 h-4 text-muted-foreground" />
+          </div>
+        </Link>
 
         {/* Scent map */}
         {scentMap.length > 0 && (

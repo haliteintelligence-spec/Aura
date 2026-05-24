@@ -44,7 +44,7 @@ async function searchWithGPT(query: string, category?: string): Promise<BeautyPr
         },
         {
           role: "user",
-          content: `Query: "${query}"\n\nReturn JSON:\n{"results":[{"name":"...","brand":"...","category":"skincare","subcategory":"serum","description":"...","key_ingredients":["Vitamin C"],"scent_notes":[],"tags":["vegan"],"image_url":null}]}`,
+          content: `Query: "${query}"\n\nReturn JSON with ALL price variants and FULL ingredient list for each product:\n{"results":[{"name":"...","brand":"...","category":"skincare","subcategory":"serum","description":"...","key_ingredients":["Vitamin C","Hyaluronic Acid"],"full_ingredients":"Aqua, Glycerin, Niacinamide...","scent_notes":[],"tags":["vegan"],"image_url":null,"prices":[{"size":"30ml","price_min":45,"price_max":45,"currency":"USD"},{"size":"50ml","price_min":65,"price_max":65,"currency":"USD"}]}]}`,
         },
       ],
     });

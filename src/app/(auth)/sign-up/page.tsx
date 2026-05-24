@@ -42,7 +42,7 @@ export default function SignUpPage() {
       toast.error(error.message);
       setLoading(false);
     } else {
-      toast.success("Account created! Welcome to Sally.");
+      toast.success("Account created! Welcome to Hallie.");
       router.push("/");
       router.refresh();
     }

@@ -11,8 +11,8 @@ import { useUser } from "@/hooks/use-user";
 import { format, subDays } from "date-fns";
 import Link from "next/link";
 import Image from "next/image";
-import { Droplets, Sparkles, BookOpen, Plus, ChevronRight, User, Layers, Loader2, MessageCircleHeart } from "lucide-react";
-import type { ScentLog } from "@/lib/types";
+import { Droplets, Sparkles, BookOpen, Plus, ChevronRight, User, Layers, Loader2, MessageCircleHeart, CalendarCheck } from "lucide-react";
+import type { ScentLog, CollectionItem } from "@/lib/types";
 import { cn, BOTTLE_SIZES, SEASONS, OCCASIONS, PRODUCT_LEVELS, COLLECTION_TYPES, proxyImageUrl } from "@/lib/utils";
 import { toast } from "sonner";
 import { checkAndAwardBadges } from "@/lib/badges";
@@ -32,6 +32,7 @@ export default function HomePage() {
   const [recommendations, setRecommendations] = useState<Rec[]>([]);
   const [loadingRecs, setLoadingRecs] = useState(false);
   const [closetCount, setClosetCount] = useState(0);
+  const [closetItems, setClosetItems] = useState<CollectionItem[]>([]);
   const [seasonalData, setSeasonalData] = useState<Record<string, { name: string; count: number }[]>>({});
 
   // Add-to-collection sheet state
@@ -61,10 +62,14 @@ export default function HomePage() {
 
     supabase
       .from("collection_items")
-      .select("id", { count: "exact" })
+      .select("id, perfume:perfumes(name, brand), user_perfume:user_perfumes(name, brand)")
       .eq("user_id", user.id)
       .eq("collection_type", "closet")
-      .then(({ count }) => setClosetCount(count ?? 0));
+      .then(({ data }) => {
+        const loaded = (data as unknown as CollectionItem[]) ?? [];
+        setClosetCount(loaded.length);
+        setClosetItems(loaded);
+      });
 
     // Seasonal usage patterns
     supabase
@@ -152,6 +157,23 @@ export default function HomePage() {
     setAddOccasions([]);
     setAddRating(0);
     setAddPrices({});
+  }
+
+  function wearRecsToday() {
+    const matchedIds = recommendations
+      .map((rec) =>
+        closetItems.find((item) => {
+          const p = (item.perfume ?? item.user_perfume) as { name: string; brand: string } | null;
+          return p && p.name.toLowerCase() === rec.name.toLowerCase() && p.brand.toLowerCase() === rec.brand.toLowerCase();
+        })?.id
+      )
+      .filter(Boolean) as string[];
+
+    if (matchedIds.length === 0) {
+      toast.error("None of these recommendations are in your closet yet");
+      return;
+    }
+    router.push(`/scent-log?ids=${matchedIds.join(",")}`);
   }
 
   async function fetchAddPrices(sizes: string[], rec: Rec) {
@@ -253,7 +275,7 @@ export default function HomePage() {
         <div className="px-4 pt-12 pb-6 bg-gradient-to-b from-plum-50 to-background">
           <div className="flex items-center justify-between mb-2">
             <div>
-              <h1 className="font-display text-3xl text-primary">Sally</h1>
+              <h1 className="font-display text-3xl text-primary">Hallie</h1>
               <p className="text-sm text-muted-foreground">
                 {user
                   ? `Welcome back, ${user.user_metadata?.display_name ?? user.email?.split("@")[0]}`
@@ -319,7 +341,7 @@ export default function HomePage() {
               {[
                 { label: "Add fragrance", href: "/discover", icon: Plus },
                 { label: "Scent Journal", href: "/scent-journal", icon: BookOpen },
-                { label: "Layering", href: "/layering", icon: Layers },
+                { label: "Recommendations", href: "/layering", icon: Layers },
                 { label: "Insights", href: "/insights", icon: Sparkles },
               ].map((a) => (
                 <Link key={a.href} href={a.href}>
@@ -379,7 +401,12 @@ export default function HomePage() {
               <div className="px-4 pb-8">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="font-display text-lg">For You</h2>
-                  <Sparkles className="w-4 h-4 text-primary" />
+                  <button
+                    onClick={wearRecsToday}
+                    className="flex items-center gap-1 text-xs text-primary font-medium"
+                  >
+                    <CalendarCheck className="w-3.5 h-3.5" /> Wear today
+                  </button>
                 </div>
                 <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4">
                   {recommendations.slice(0, 6).map((rec, i) => (
@@ -433,9 +460,9 @@ export default function HomePage() {
             <div className="grid grid-cols-2 gap-3">
               {[
                 { title: "Smart Search", desc: "Find any perfume by name or photo" },
-                { title: "Olfa AI", desc: "Your personal fragrance advisor" },
+                { title: "Hal AI", desc: "Your personal fragrance advisor" },
                 { title: "Scent Journal", desc: "Track what you wear and how it performs" },
-                { title: "Layering", desc: "Discover perfect fragrance combinations" },
+                { title: "Recommendations", desc: "Discover perfect fragrance combinations" },
               ].map((f) => (
                 <div key={f.title} className="bg-card border border-border rounded-xl p-3">
                   <p className="text-sm font-semibold font-display mb-0.5">{f.title}</p>

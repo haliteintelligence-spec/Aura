@@ -228,6 +228,13 @@ export function BeautyCatalog() {
                   </div>
                 )}
 
+                {selected.full_ingredients && (
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Full Ingredients</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{selected.full_ingredients}</p>
+                  </div>
+                )}
+
                 {selected.scent_notes && selected.scent_notes.length > 0 && (
                   <div className="space-y-1.5">
                     <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Scent Notes</p>

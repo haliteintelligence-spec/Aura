@@ -376,6 +376,20 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
         userPerfumeId = up.id;
       }
 
+      // Duplicate check — block if already in any collection
+      const dupQuery = supabase
+        .from("collection_items")
+        .select("collection_type")
+        .eq("user_id", user.id);
+      const { data: existing } = await (perfumeId
+        ? dupQuery.eq("perfume_id", perfumeId)
+        : dupQuery.eq("user_perfume_id", userPerfumeId!));
+      if (existing && existing.length > 0) {
+        const inCollection = COLLECTION_TYPES.find((c) => c.value === existing[0].collection_type)?.label ?? existing[0].collection_type;
+        toast.error(`Already in your ${inCollection}`);
+        return;
+      }
+
       const effectiveSizes = resolvedSizes(selectedSizes, customMl);
       const sizesPrices = effectiveSizes.map((s) => ({
         size: s,

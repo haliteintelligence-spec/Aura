@@ -46,7 +46,7 @@ export default function LayeringPage() {
   const [genOccasion, setGenOccasion] = useState<string[]>([]);
   const [genSeason, setGenSeason] = useState<string[]>([]);
   const [genMood, setGenMood] = useState<string[]>([]);
-  const [genCount, setGenCount] = useState("2");
+  const [genCount, setGenCount] = useState("1");
   const [longevity, setLongevity] = useState(5);
   const [sillage, setSillage] = useState(5);
 

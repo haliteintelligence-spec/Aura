@@ -69,7 +69,7 @@ export function OlfaChat() {
         <button
           onClick={() => setOpen(true)}
           className="fixed bottom-24 right-4 z-50 w-12 h-12 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-all active:scale-95"
-          aria-label="Chat with Olfa"
+          aria-label="Chat with Hal"
         >
           <Sparkles className="w-5 h-5" />
         </button>
@@ -86,7 +86,7 @@ export function OlfaChat() {
                 <Sparkles className="w-4 h-4 text-primary-foreground" />
               </div>
               <div>
-                <p className="font-display text-sm font-medium">Olfa</p>
+                <p className="font-display text-sm font-medium">Hal AI</p>
                 <p className="text-[10px] text-muted-foreground">Your fragrance AI</p>
               </div>
             </div>
@@ -136,7 +136,7 @@ export function OlfaChat() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-              placeholder="Ask Olfa…"
+              placeholder="Ask Hal…"
               className="min-h-0 h-9 resize-none text-sm py-2 flex-1"
               rows={1}
             />

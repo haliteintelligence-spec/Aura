@@ -4,13 +4,13 @@ import { PushProvider } from "@/components/push/push-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Sally — Your Fragrance Collection",
+  title: "Hallie — Your Fragrance Collection",
   description: "Track, discover and explore your personal fragrance collection.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Sally",
+    title: "Hallie",
   },
 };
 

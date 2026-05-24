@@ -167,6 +167,7 @@ export interface BeautyProduct {
   subcategory?: string;
   description?: string;
   key_ingredients?: string[];
+  full_ingredients?: string;
   scent_notes?: string[];
   image_url?: string;
   prices?: Array<{ size: string; price_min: number | null; price_max: number | null; currency: string }>;

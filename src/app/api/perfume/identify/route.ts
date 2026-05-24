@@ -139,5 +139,35 @@ If you cannot identify the perfume, return your best guesses based on bottle sty
     })
   );
 
+  // If all candidates have low confidence or none matched DB, add similar DB matches
+  const hasLowConfidence = enriched.every((c) => ((c as Record<string, unknown>).confidence as number ?? 0) < 0.7 || (c as Record<string, unknown>).source !== "database");
+  if (hasLowConfidence && enriched.length > 0) {
+    try {
+      const supabase = await createClient();
+      const topCandidate = enriched[0];
+      const nameTokens = String(topCandidate.name ?? "").split(/\s+/).filter((w) => w.length > 2);
+      const brand = String(topCandidate.brand ?? "");
+      const seenNames = new Set(enriched.map((c) => `${c.brand}||${c.name}`.toLowerCase()));
+
+      const dbSimilar: Array<Record<string, unknown>> = [];
+      for (const token of nameTokens.slice(0, 2)) {
+        const { data } = await supabase
+          .from("perfumes")
+          .select("name,brand,year,description,top_notes,heart_notes,base_notes,fragrance_family,gender,image_url")
+          .ilike("brand", `%${brand.split(" ")[0]}%`)
+          .ilike("name", `%${token}%`)
+          .limit(3);
+        for (const row of data ?? []) {
+          const key = `${row.brand}||${row.name}`.toLowerCase();
+          if (!seenNames.has(key)) {
+            seenNames.add(key);
+            dbSimilar.push({ ...row, confidence: 0.5, source: "database_similar" });
+          }
+        }
+      }
+      enriched.push(...dbSimilar.slice(0, 3));
+    } catch { /* non-critical */ }
+  }
+
   return NextResponse.json({ candidates: enriched });
 }

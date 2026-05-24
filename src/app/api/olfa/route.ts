@@ -45,7 +45,7 @@ async function buildUserContext(userId: string, supabase: Awaited<ReturnType<typ
       .eq("user_id", userId),
   ]);
 
-  const lines: string[] = ["## User's Sally Collection Data\n"];
+  const lines: string[] = ["## User's Hallie Collection Data\n"];
 
   if (closet && closet.length > 0) {
     lines.push(`### Perfume Closet (${closet.length} fragrances)`);
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  let systemPrompt = `You are Olfa, an elegant and knowledgeable perfume AI assistant for the Sally app.
+  let systemPrompt = `You are Hal, an elegant and knowledgeable perfume AI assistant for the Hallie app.
 You have deep expertise in fragrances, perfumery, and olfactory science.
 You help users with their personal fragrance collection, recommend perfumes, explain notes and families,
 and answer any fragrance-related questions with warmth and passion.
