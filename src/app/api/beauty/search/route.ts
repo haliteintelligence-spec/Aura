@@ -13,7 +13,7 @@ async function searchDB(query: string, category?: string): Promise<BeautyProduct
     const supabase = await createClient();
     let q = supabase
       .from("beauty_products")
-      .select("id,name,brand,category,subcategory,description,key_ingredients,scent_notes,image_url,prices,tags,source_url")
+      .select("id,name,brand,category,subcategory,description,key_ingredients,full_ingredients,scent_notes,image_url,prices,tags,source_url")
       .or(`name.ilike.%${query}%,brand.ilike.%${query}%`)
       .limit(30);
 
