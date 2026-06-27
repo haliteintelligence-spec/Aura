@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
-import { createClient } from "@/lib/supabase/server";
+import { sql } from "@/lib/db";
 
 interface ShopifyProduct {
   title: string;
@@ -513,15 +513,10 @@ async function getAIFallback(name: string, brand: string) {
 
 async function lookupDB(name: string, brand: string) {
   try {
-    const supabase = await createClient();
-    const { data } = await supabase
-      .from("perfumes")
-      .select("image_url,description,top_notes,heart_notes,base_notes")
-      .ilike("brand", brand.trim())
-      .ilike("name", name.trim())
-      .limit(1)
-      .single();
-    return data ?? null;
+    const rows = await sql`
+      SELECT image_url,description,top_notes,heart_notes,base_notes
+      FROM perfumes WHERE brand ILIKE ${brand.trim()} AND name ILIKE ${name.trim()} LIMIT 1`;
+    return rows[0] ?? null;
   } catch {
     return null;
   }

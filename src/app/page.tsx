@@ -6,7 +6,6 @@ import { Slider } from "@/components/ui/slider";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { format, subDays } from "date-fns";
 import Link from "next/link";
@@ -50,54 +49,36 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!user) return;
-    const supabase = createClient();
-    supabase
-      .from("scent_logs")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("date", { ascending: false })
-      .limit(14)
+
+    fetch("/api/logs?limit=14").then((r) => r.json())
       .then(({ data }) => setRecentLogs((data as ScentLog[]) ?? []));
 
-    supabase
-      .from("collection_items")
-      .select("id, perfume:perfumes(name, brand), user_perfume:user_perfumes(name, brand)")
-      .eq("user_id", user.id)
-      .eq("collection_type", "closet")
-      .then(({ data }) => {
-        setClosetItems((data as unknown as CollectionItem[]) ?? []);
-      });
+    fetch("/api/collection?type=closet").then((r) => r.json())
+      .then(({ data }) => setClosetItems((data as CollectionItem[]) ?? []));
 
-    // Seasonal usage patterns
-    supabase
-      .from("scent_logs")
-      .select("date, collection_item_ids")
-      .eq("user_id", user.id)
-      .then(async ({ data: logs }) => {
-        if (!logs?.length) return;
-        const allIds = [...new Set(logs.flatMap((l) => l.collection_item_ids as string[]))];
-        if (!allIds.length) return;
-        const { data: collItems } = await supabase
-          .from("collection_items")
-          .select("id, perfume:perfumes(name), user_perfume:user_perfumes(name)")
-          .in("id", allIds);
-        const idToName = Object.fromEntries(
-          (collItems ?? []).map((i) => [i.id, ((i.perfume ?? i.user_perfume) as unknown as { name: string } | null)?.name ?? ""])
-        );
-        const getSeason = (d: string) => {
-          const m = new Date(d).getMonth() + 1;
-          if (m >= 3 && m <= 5) return "Spring";
-          if (m >= 6 && m <= 8) return "Summer";
-          if (m >= 9 && m <= 11) return "Autumn";
-          return "Winter";
-        };
+    // Seasonal usage patterns from logs
+    fetch("/api/logs").then((r) => r.json()).then(({ data: logs }) => {
+      if (!logs?.length) return;
+      const allItems = (logs as ScentLog[]).flatMap((l) =>
+        (l.collection_item_ids ?? []).map((id: string) => ({ id, date: l.date }))
+      );
+      const idToName: Record<string, string> = {};
+      const getSeason = (d: string) => {
+        const m = new Date(d).getMonth() + 1;
+        if (m >= 3 && m <= 5) return "Spring";
+        if (m >= 6 && m <= 8) return "Summer";
+        if (m >= 9 && m <= 11) return "Autumn";
+        return "Winter";
+      };
+      fetch("/api/collection").then((r) => r.json()).then(({ data: collItems }) => {
+        for (const i of (collItems ?? [])) {
+          idToName[i.id] = (i.perfume ?? i.user_perfume)?.name ?? "";
+        }
         const counts: Record<string, Record<string, number>> = { Spring: {}, Summer: {}, Autumn: {}, Winter: {} };
-        for (const log of logs) {
-          const season = getSeason(log.date as string);
-          for (const id of (log.collection_item_ids as string[])) {
-            const name = idToName[id];
-            if (name) counts[season][name] = (counts[season][name] ?? 0) + 1;
-          }
+        for (const { id, date } of allItems) {
+          const season = getSeason(date as string);
+          const name = idToName[id];
+          if (name) counts[season][name] = (counts[season][name] ?? 0) + 1;
         }
         const result: Record<string, { name: string; count: number }[]> = {};
         for (const [season, perfumeCounts] of Object.entries(counts)) {
@@ -109,6 +90,7 @@ export default function HomePage() {
         }
         setSeasonalData(result);
       });
+    });
   }, [user]);
 
   useEffect(() => {
@@ -184,62 +166,48 @@ export default function HomePage() {
     if (!selectedRec || !user) return;
     setAddSaving(true);
     try {
-      const supabase = createClient();
-
-      // Fetch image from Fragrantica if none
-      let imageUrl = selectedRec.image_url ?? null;
-      if (!imageUrl) {
-        const res = await fetch("/api/perfume/image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: selectedRec.name, brand: selectedRec.brand }),
-        });
-        const data = await res.json();
-        imageUrl = data.image_url ?? null;
-      }
-
-      const { data: perfumeData, error: perfumeErr } = await supabase
-        .from("perfumes")
-        .upsert({
+      // Look up or create user_perfume for this recommendation
+      const upRes = await fetch("/api/user-perfumes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           name: selectedRec.name,
           brand: selectedRec.brand,
-          image_url: imageUrl,
-          top_notes: [],
-          heart_notes: [],
-          base_notes: [],
-          fragrance_family: [],
-        }, { onConflict: "name,brand", ignoreDuplicates: false })
-        .select()
-        .single();
-
-      if (perfumeErr) throw perfumeErr;
+          image_url: selectedRec.image_url ?? null,
+          top_notes: [], heart_notes: [], base_notes: [], fragrance_family: [],
+        }),
+      });
+      if (!upRes.ok) throw new Error("Failed to create perfume entry");
+      const upData = await upRes.json();
 
       const sizesPrices = addSizes.map((s) => ({
-        size: s,
-        price_min: addPrices[s]?.min ?? null,
-        price_max: addPrices[s]?.max ?? null,
-        currency: "USD",
+        size: s, price_min: addPrices[s]?.min ?? null, price_max: addPrices[s]?.max ?? null, currency: "USD",
       }));
 
-      const { error: itemErr } = await supabase.from("collection_items").insert({
-        user_id: user.id,
-        perfume_id: perfumeData.id,
-        collection_type: addCollection,
-        bottle_sizes: addSizes,
-        size_prices: sizesPrices,
-        occasions: addOccasions,
-        seasons: addSeasons,
-        rating: addRating > 0 ? addRating : null,
-        initial_level: addLevel,
-        estimated_level: addLevel,
+      const itemRes = await fetch("/api/collection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_perfume_id: upData.id,
+          collection_type: addCollection,
+          bottle_sizes: addSizes,
+          size_prices: sizesPrices,
+          occasions: addOccasions,
+          seasons: addSeasons,
+          rating: addRating > 0 ? addRating : null,
+          initial_level: addLevel,
+          estimated_level: addLevel,
+        }),
       });
-
-      if (itemErr) throw itemErr;
+      if (!itemRes.ok) {
+        const err = await itemRes.json();
+        if (itemRes.status === 409) { toast.error(err.error ?? "Already in your collection"); return; }
+        throw new Error("Failed to add to collection");
+      }
 
       toast.success(`Added to your ${COLLECTION_TYPES.find((c) => c.value === addCollection)?.label}!`);
-      checkAndAwardBadges(user.id);
+      checkAndAwardBadges("");
       setSelectedRec(null);
-      router.refresh();
     } catch (err) {
       const msg = err instanceof Error ? err.message : JSON.stringify(err);
       toast.error(`Failed to save: ${msg}`);
@@ -258,7 +226,7 @@ export default function HomePage() {
               <h1 className="font-display text-3xl text-primary">Hallie</h1>
               <p className="text-sm text-muted-foreground">
                 {user
-                  ? `Welcome back, ${user.user_metadata?.display_name ?? user.email?.split("@")[0]}`
+                  ? `Welcome back, ${user.name ?? user.email?.split("@")[0]}`
                   : "Your fragrance universe"}
               </p>
             </div>

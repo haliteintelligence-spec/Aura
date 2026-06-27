@@ -4,7 +4,6 @@ import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { PerfumeSelect } from "@/components/ui/perfume-select";
-import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { cn, proxyImageUrl } from "@/lib/utils";
 import type { CollectionItem, ComplimentEntry } from "@/lib/types";
@@ -49,35 +48,23 @@ export default function ComplimentTrackerPage() {
     if (!user) return;
     setLoading(true);
     try {
-      const supabase = createClient();
-
-      const { data: items } = await supabase
-        .from("collection_items")
-        .select("*, perfume:perfumes(*), user_perfume:user_perfumes(*)")
-        .eq("user_id", user.id)
-        .eq("collection_type", "closet");
-      const closet = (items as CollectionItem[]) ?? [];
+      const [closetRes, logsRes, complimentsRes] = await Promise.all([
+        fetch("/api/collection?type=closet").then((r) => r.json()),
+        fetch("/api/logs").then((r) => r.json()),
+        fetch("/api/compliments").then((r) => r.json()),
+      ]);
+      const closet = (closetRes.data as CollectionItem[]) ?? [];
       setClosetItems(closet);
 
-      const idToItem = Object.fromEntries(closet.map((i) => [i.id, i]));
+      const idToItem = Object.fromEntries(closet.map((i: CollectionItem) => [i.id, i]));
 
-      const { data: logs } = await supabase
-        .from("scent_logs")
-        .select("id, collection_item_ids, date")
-        .eq("user_id", user.id)
-        .eq("got_compliment", true)
-        .order("date", { ascending: false });
+      const logs = ((logsRes.data ?? []) as Array<{ id: string; collection_item_ids: string[]; date: string; got_compliment: boolean }>).filter((l) => l.got_compliment);
+      const manual = (complimentsRes.data as ComplimentEntry[]) ?? [];
 
-      const { data: manual } = await supabase
-        .from("compliment_entries")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("date", { ascending: false });
-
-      const rawManual = (manual as ComplimentEntry[]) ?? [];
+      const rawManual = manual;
       setManualEntries(rawManual);
 
-      const rawJournal: JournalEntry[] = (logs ?? []).map((log) => {
+      const rawJournal: JournalEntry[] = logs.map((log) => {
         const ids = (log.collection_item_ids as string[]) ?? [];
         const names = ids.map((id) => { const it = idToItem[id]; return (it?.perfume ?? it?.user_perfume)?.name; }).filter(Boolean) as string[];
         return { id: log.id as string, collection_item_ids: ids, date: log.date as string, names };
@@ -145,26 +132,25 @@ export default function ComplimentTrackerPage() {
     if (!user || sheetIds.length === 0) { toast.error("Select at least one fragrance"); return; }
     setSaving(true);
     try {
-      const supabase = createClient();
       const names = sheetIds
         .map((id) => closetItems.find((i) => i.id === id)?.perfume?.name)
         .filter(Boolean) as string[];
 
       if (editingEntry) {
-        const { error } = await supabase
-          .from("compliment_entries")
-          .update({ collection_item_ids: sheetIds, perfume_names: names })
-          .eq("id", editingEntry.id);
-        if (error) throw error;
+        const res = await fetch(`/api/compliments/${editingEntry.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ collection_item_ids: sheetIds, perfume_names: names }),
+        });
+        if (!res.ok) throw new Error("Update failed");
         toast.success("Entry updated");
       } else {
-        const { error } = await supabase.from("compliment_entries").insert({
-          user_id: user.id,
-          collection_item_ids: sheetIds,
-          perfume_names: names,
-          date: format(new Date(), "yyyy-MM-dd"),
+        const res = await fetch("/api/compliments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ collection_item_ids: sheetIds, perfume_names: names }),
         });
-        if (error) throw error;
+        if (!res.ok) throw new Error("Insert failed");
         toast.success("Compliment recorded!");
       }
       closeSheet();
@@ -179,9 +165,8 @@ export default function ComplimentTrackerPage() {
   async function deleteManual(id: string) {
     setDeleting(id);
     try {
-      const supabase = createClient();
-      const { error } = await supabase.from("compliment_entries").delete().eq("id", id);
-      if (error) throw error;
+      const res = await fetch(`/api/compliments/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
       toast.success("Entry deleted");
       await load();
     } catch {
@@ -194,9 +179,12 @@ export default function ComplimentTrackerPage() {
   async function removeJournalCompliment(id: string) {
     setDeleting(id);
     try {
-      const supabase = createClient();
-      const { error } = await supabase.from("scent_logs").update({ got_compliment: false }).eq("id", id);
-      if (error) throw error;
+      const res = await fetch(`/api/logs/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ got_compliment: false }),
+      });
+      if (!res.ok) throw new Error("Update failed");
       toast.success("Compliment removed from log");
       await load();
     } catch {

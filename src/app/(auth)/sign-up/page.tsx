@@ -1,10 +1,10 @@
 "use client";
 import { useState } from "react";
+import { signIn } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -29,36 +29,34 @@ export default function SignUpPage() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
-  async function signUp(e: React.FormEvent) {
+  async function handleSignUp(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { display_name: name } },
+    const res = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, name }),
     });
-    if (error) {
-      toast.error(error.message);
+    if (!res.ok) {
+      const { error } = await res.json();
+      toast.error(error ?? "Failed to create account");
       setLoading(false);
+      return;
+    }
+    const result = await signIn("credentials", { email, password, redirect: false });
+    if (result?.error) {
+      toast.error("Account created but sign-in failed. Try signing in.");
+      router.push("/sign-in");
     } else {
-      toast.success("Account created! Welcome to Hallie.");
+      toast.success("Welcome to Hallie!");
       router.push("/");
       router.refresh();
     }
   }
 
-  async function signUpWithGoogle() {
+  async function handleGoogle() {
     setGoogleLoading(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/` },
-    });
-    if (error) {
-      toast.error(error.message);
-      setGoogleLoading(false);
-    }
+    await signIn("google", { callbackUrl: "/" });
   }
 
   return (
@@ -66,7 +64,7 @@ export default function SignUpPage() {
       <Button
         variant="outline"
         className="w-full h-11 gap-3"
-        onClick={signUpWithGoogle}
+        onClick={handleGoogle}
         disabled={googleLoading}
       >
         {googleLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <GoogleIcon />}
@@ -79,7 +77,7 @@ export default function SignUpPage() {
         <Separator className="flex-1" />
       </div>
 
-      <form onSubmit={signUp} className="space-y-4">
+      <form onSubmit={handleSignUp} className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="name">Your name</Label>
           <Input

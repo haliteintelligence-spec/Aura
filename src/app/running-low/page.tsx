@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { levelToFraction, proxyImageUrl, SEASONS, FRAGRANCE_FAMILIES } from "@/lib/utils";
 import type { CollectionItem } from "@/lib/types";
@@ -30,12 +29,8 @@ export default function RunningLowPage() {
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    const supabase = createClient();
-    const { data } = await supabase
-      .from("collection_items")
-      .select("*, perfume:perfumes(*), user_perfume:user_perfumes(*)")
-      .eq("user_id", user.id)
-      .eq("collection_type", "closet");
+    const res = await fetch("/api/collection?type=closet");
+    const { data } = await res.json();
     const all = (data as CollectionItem[]) ?? [];
     setItems(all.filter((i) => levelToFraction(i.estimated_level) <= 0.25));
     setLoading(false);

@@ -6,7 +6,6 @@ import { Slider } from "@/components/ui/slider";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { MOODS, EVENT_TYPES, DURATION_RANGES, proxyImageUrl, cn } from "@/lib/utils";
 import { PerfumeSelect } from "@/components/ui/perfume-select";
@@ -30,28 +29,18 @@ export default function ScentJournalPage() {
   }, [user]);
 
   async function loadData() {
-    const supabase = createClient();
-    const [{ data: logData }, { data: itemData }] = await Promise.all([
-      supabase
-        .from("scent_logs")
-        .select("*")
-        .eq("user_id", user!.id)
-        .order("date", { ascending: false }),
-      supabase
-        .from("collection_items")
-        .select("*, perfume:perfumes(*), user_perfume:user_perfumes(*)")
-        .eq("user_id", user!.id)
-        .eq("collection_type", "closet"),
+    const [logsRes, itemsRes] = await Promise.all([
+      fetch("/api/logs").then((r) => r.json()),
+      fetch("/api/collection?type=closet").then((r) => r.json()),
     ]);
-    setLogs((logData as ScentLog[]) ?? []);
-    setClosetItems((itemData as CollectionItem[]) ?? []);
+    setLogs((logsRes.data as ScentLog[]) ?? []);
+    setClosetItems((itemsRes.data as CollectionItem[]) ?? []);
     setDataLoading(false);
   }
 
   async function deleteLog(id: string) {
-    const supabase = createClient();
-    const { error } = await supabase.from("scent_logs").delete().eq("id", id);
-    if (!error) {
+    const res = await fetch(`/api/logs/${id}`, { method: "DELETE" });
+    if (res.ok) {
       setLogs((prev) => prev.filter((l) => l.id !== id));
       toast.success("Log deleted");
     }
@@ -203,10 +192,10 @@ function EditLogDialog({
 
   async function save() {
     setSaving(true);
-    const supabase = createClient();
-    const { error } = await supabase
-      .from("scent_logs")
-      .update({
+    const res = await fetch(`/api/logs/${log.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         collection_item_ids: selectedIds,
         mood,
         event_type: eventTypes[0] ?? "",
@@ -214,10 +203,9 @@ function EditLogDialog({
         duration,
         rating,
         notes: notes || null,
-      })
-      .eq("id", log.id);
-
-    if (error) {
+      }),
+    });
+    if (!res.ok) {
       toast.error("Failed to save");
     } else {
       toast.success("Log updated");

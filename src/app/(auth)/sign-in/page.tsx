@@ -1,10 +1,10 @@
 "use client";
 import { useState } from "react";
+import { signIn } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -28,13 +28,12 @@ export default function SignInPage() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
-  async function signIn(e: React.FormEvent) {
+  async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      toast.error(error.message);
+    const result = await signIn("credentials", { email, password, redirect: false });
+    if (result?.error) {
+      toast.error("Invalid email or password");
       setLoading(false);
     } else {
       router.push("/");
@@ -42,17 +41,9 @@ export default function SignInPage() {
     }
   }
 
-  async function signInWithGoogle() {
+  async function handleGoogle() {
     setGoogleLoading(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/` },
-    });
-    if (error) {
-      toast.error(error.message);
-      setGoogleLoading(false);
-    }
+    await signIn("google", { callbackUrl: "/" });
   }
 
   return (
@@ -60,7 +51,7 @@ export default function SignInPage() {
       <Button
         variant="outline"
         className="w-full h-11 gap-3"
-        onClick={signInWithGoogle}
+        onClick={handleGoogle}
         disabled={googleLoading}
       >
         {googleLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <GoogleIcon />}
@@ -73,7 +64,7 @@ export default function SignInPage() {
         <Separator className="flex-1" />
       </div>
 
-      <form onSubmit={signIn} className="space-y-4">
+      <form onSubmit={handleSignIn} className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="email">Email</Label>
           <Input

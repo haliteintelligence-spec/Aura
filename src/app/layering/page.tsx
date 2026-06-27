@@ -7,7 +7,6 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { SEASONS, OCCASIONS, MOODS, cn } from "@/lib/utils";
@@ -52,32 +51,20 @@ export default function LayeringPage() {
 
   useEffect(() => {
     if (!user) return;
-    const supabase = createClient();
-    supabase
-      .from("collection_items")
-      .select("*, perfume:perfumes(*), user_perfume:user_perfumes(*)")
-      .eq("user_id", user.id)
-      .eq("collection_type", "closet")
+    fetch("/api/collection?type=closet").then((r) => r.json())
       .then(({ data }) => setClosetItems((data as CollectionItem[]) ?? []));
     loadSavedCombos();
   }, [user]);
 
   async function loadSavedCombos() {
     if (!user) return;
-    const supabase = createClient();
-    const { data } = await supabase
-      .from("layer_combos")
-      .select("*")
-      .eq("user_id", user.id)
-      .eq("saved", true)
-      .order("created_at", { ascending: false });
+    const { data } = await fetch("/api/combos?saved=true").then((r) => r.json());
     setSavedCombos((data as LayerCombo[]) ?? []);
   }
 
   async function deleteCombo(id: string) {
-    const supabase = createClient();
-    const { error } = await supabase.from("layer_combos").delete().eq("id", id);
-    if (!error) {
+    const res = await fetch(`/api/combos/${id}`, { method: "DELETE" });
+    if (res.ok) {
       setSavedCombos((prev) => prev.filter((c) => c.id !== id));
       toast.success("Combo deleted");
     }
@@ -143,30 +130,31 @@ export default function LayeringPage() {
 
   async function saveCombo() {
     if (!user || !result) return;
-    const supabase = createClient();
-
     const itemIds = resolveItemIds();
     const perfumeNames = result.selected_perfumes?.length
       ? result.selected_perfumes
       : closetItems.filter((i) => itemIds.includes(i.id)).map((i) => (i.perfume ?? i.user_perfume)?.name).filter(Boolean) as string[];
 
-    const { error } = await supabase.from("layer_combos").insert({
-      user_id: user.id,
-      name: result.name_suggestion,
-      collection_item_ids: itemIds,
-      perfume_names: perfumeNames,
-      occasion: genOccasion,
-      season: genSeason,
-      mood: genMood,
-      intensity_longevity: longevity,
-      intensity_sillage: sillage,
-      combined_profile: result.combined_profile,
-      saved: true,
+    const res = await fetch("/api/combos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: result.name_suggestion,
+        collection_item_ids: itemIds,
+        perfume_names: perfumeNames,
+        occasion: genOccasion,
+        season: genSeason,
+        mood: genMood,
+        intensity_longevity: longevity,
+        intensity_sillage: sillage,
+        combined_profile: result.combined_profile,
+        saved: true,
+      }),
     });
-    if (!error) {
+    if (res.ok) {
       setSaved(true);
       toast.success("Saved!");
-      checkAndAwardBadges(user.id);
+      checkAndAwardBadges("");
       loadSavedCombos();
     } else {
       toast.error("Failed to save");

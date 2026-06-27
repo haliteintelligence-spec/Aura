@@ -2,7 +2,6 @@
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { MostWornChart, OccasionPieChart, MoodBarChart, BrandRatingChart } from "@/components/insights/charts";
-import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
@@ -17,13 +16,12 @@ export default function InsightsPage() {
 
   useEffect(() => {
     if (!user) { setLoading(false); return; }
-    const supabase = createClient();
     Promise.all([
-      supabase.from("scent_logs").select("*").eq("user_id", user.id).order("date", { ascending: false }),
-      supabase.from("collection_items").select("id, perfume:perfumes(name, brand), user_perfume:user_perfumes(name, brand)").eq("user_id", user.id),
-    ]).then(([{ data: logData }, { data: itemData }]) => {
-      setLogs((logData as ScentLog[]) ?? []);
-      setItems((itemData as any[]) ?? []);
+      fetch("/api/logs").then((r) => r.json()),
+      fetch("/api/collection").then((r) => r.json()),
+    ]).then(([logRes, itemRes]) => {
+      setLogs((logRes.data as ScentLog[]) ?? []);
+      setItems((itemRes.data as { id: string; perfume: { name: string; brand: string } | null; user_perfume: { name: string; brand: string } | null }[]) ?? []);
       setLoading(false);
     });
   }, [user]);

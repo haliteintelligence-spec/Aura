@@ -4,7 +4,6 @@ import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import type { SwapListing } from "@/lib/types";
 import { Loader2, ArrowLeftRight, Droplets } from "lucide-react";
@@ -20,32 +19,24 @@ export default function SwapPage() {
   const [loading, setLoading] = useState(true);
 
   async function load() {
-    const supabase = createClient();
-    const [{ data: all }, { data: mine }] = await Promise.all([
-      supabase
-        .from("swap_listings")
-        .select("*, collection_item:collection_items(*, perfume:perfumes(*), user_perfume:user_perfumes(*))")
-        .eq("status", "available")
-        .order("created_at", { ascending: false }),
-      user
-        ? supabase
-            .from("swap_listings")
-            .select("*, collection_item:collection_items(*, perfume:perfumes(*), user_perfume:user_perfumes(*))")
-            .eq("user_id", user.id)
-            .order("created_at", { ascending: false })
-        : Promise.resolve({ data: [] }),
+    const [allRes, mineRes] = await Promise.all([
+      fetch("/api/swap").then((r) => r.json()),
+      user ? fetch("/api/swap?mine=true").then((r) => r.json()) : Promise.resolve({ data: [] }),
     ]);
-    setListings((all as SwapListing[]) ?? []);
-    setMyListings((mine as SwapListing[]) ?? []);
+    setListings((allRes.data as SwapListing[]) ?? []);
+    setMyListings((mineRes.data as SwapListing[]) ?? []);
     setLoading(false);
   }
 
   useEffect(() => { load(); }, [user]);
 
   async function withdrawListing(id: string) {
-    const supabase = createClient();
-    const { error } = await supabase.from("swap_listings").update({ status: "completed" }).eq("id", id);
-    if (!error) { toast.success("Listing withdrawn"); load(); }
+    const res = await fetch(`/api/swap/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "completed" }),
+    });
+    if (res.ok) { toast.success("Listing withdrawn"); load(); }
   }
 
   const SwapCard = ({ listing }: { listing: SwapListing }) => {

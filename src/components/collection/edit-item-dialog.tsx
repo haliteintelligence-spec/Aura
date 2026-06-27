@@ -9,7 +9,6 @@ import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { cn, BOTTLE_SIZES, SEASONS, OCCASIONS, PRODUCT_LEVELS, COLLECTION_TYPES, levelToFraction, formatPrice, proxyImageUrl } from "@/lib/utils";
 import type { CollectionItem } from "@/lib/types";
-import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { Loader2, Trash2, ArrowLeftRight, Star, Droplets } from "lucide-react";
 import Image from "next/image";
@@ -81,9 +80,6 @@ export function EditItemDialog({ item, open, onClose, onSaved }: EditItemDialogP
   async function save() {
     setSaving(true);
     try {
-      const supabase = createClient();
-
-      // Merge refreshed prices with existing ones; refreshed take priority
       const existingPrices = item?.size_prices ?? [];
       const mergedPrices = sizes.map((size) => {
         if (fetchedPrices[size]) {
@@ -93,9 +89,10 @@ export function EditItemDialog({ item, open, onClose, onSaved }: EditItemDialogP
         return existing ?? { size, price_min: null, price_max: null, currency: "USD" };
       });
 
-      const { error } = await supabase
-        .from("collection_items")
-        .update({
+      const res = await fetch(`/api/collection/${itemId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           collection_type: collection,
           bottle_sizes: sizes,
           size_prices: mergedPrices,
@@ -104,11 +101,9 @@ export function EditItemDialog({ item, open, onClose, onSaved }: EditItemDialogP
           occasions,
           rating: rating > 0 ? rating : null,
           available_for_swap: swap,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", itemId);
-
-      if (error) throw error;
+        }),
+      });
+      if (!res.ok) throw new Error("Save failed");
 
       // Notify when bottle crosses down through the ¼ threshold
       const oldFraction = levelToFraction(item?.estimated_level ?? "full");
@@ -135,9 +130,8 @@ export function EditItemDialog({ item, open, onClose, onSaved }: EditItemDialogP
   async function deleteItem() {
     setDeleting(true);
     try {
-      const supabase = createClient();
-      const { error } = await supabase.from("collection_items").delete().eq("id", itemId);
-      if (error) throw error;
+      const res = await fetch(`/api/collection/${itemId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
       toast.success("Removed from collection");
       onSaved();
       onClose();

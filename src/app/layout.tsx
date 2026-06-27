@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Toaster } from "@/components/ui/sonner";
 import { PushProvider } from "@/components/push/push-provider";
+import { SessionProvider } from "next-auth/react";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -38,10 +39,12 @@ export default function RootLayout({
         />
       </head>
       <body className="h-full overflow-x-hidden">
-        <PushProvider>
-          {children}
-          <Toaster richColors position="top-center" />
-        </PushProvider>
+        <SessionProvider>
+          <PushProvider>
+            {children}
+            <Toaster richColors position="top-center" />
+          </PushProvider>
+        </SessionProvider>
       </body>
     </html>
   );

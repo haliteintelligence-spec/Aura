@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
-import { createClient } from "@/lib/supabase/server";
+import { sql } from "@/lib/db";
 import { getBrandDomainAny, searchBrandSite } from "@/lib/brand-scraper";
 import type { BeautyProduct, BeautyCategory } from "@/lib/types";
 
@@ -10,19 +10,15 @@ const VALID_CATEGORIES = new Set(["skincare", "bodycare", "haircare", "candle", 
 
 async function searchDB(query: string, category?: string): Promise<BeautyProduct[]> {
   try {
-    const supabase = await createClient();
-    let q = supabase
-      .from("beauty_products")
-      .select("id,name,brand,category,subcategory,description,key_ingredients,full_ingredients,scent_notes,image_url,prices,tags,source_url")
-      .or(`name.ilike.%${query}%,brand.ilike.%${query}%`)
-      .limit(30);
-
-    if (category && VALID_CATEGORIES.has(category)) {
-      q = q.eq("category", category);
-    }
-
-    const { data } = await q;
-    return (data ?? []) as BeautyProduct[];
+    const like = '%' + query + '%';
+    const rows = category && VALID_CATEGORIES.has(category)
+      ? await sql<BeautyProduct[]>`
+          SELECT id,name,brand,category,subcategory,description,key_ingredients,full_ingredients,scent_notes,image_url,prices,tags,source_url
+          FROM beauty_products WHERE (name ILIKE ${like} OR brand ILIKE ${like}) AND category = ${category} LIMIT 30`
+      : await sql<BeautyProduct[]>`
+          SELECT id,name,brand,category,subcategory,description,key_ingredients,full_ingredients,scent_notes,image_url,prices,tags,source_url
+          FROM beauty_products WHERE name ILIKE ${like} OR brand ILIKE ${like} LIMIT 30`;
+    return rows;
   } catch {
     return [];
   }

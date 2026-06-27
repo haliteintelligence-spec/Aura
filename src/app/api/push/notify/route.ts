@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@/auth";
+import { sql } from "@/lib/db";
 import webpush from "web-push";
 
 export async function POST(req: NextRequest) {
@@ -8,18 +9,15 @@ export async function POST(req: NextRequest) {
     process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
     process.env.VAPID_PRIVATE_KEY!
   );
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const session = await auth();
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { title, body, url } = await req.json();
 
-  const { data: subs } = await supabase
-    .from("push_subscriptions")
-    .select("endpoint, p256dh, auth")
-    .eq("user_id", user.id);
+  const subs = await sql<{ endpoint: string; p256dh: string; auth: string }[]>`
+    SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ${session.user.id}`;
 
-  if (!subs?.length) return NextResponse.json({ sent: 0 });
+  if (!subs.length) return NextResponse.json({ sent: 0 });
 
   const payload = JSON.stringify({ title, body, url: url ?? "/closet" });
   let sent = 0;
@@ -34,7 +32,7 @@ export async function POST(req: NextRequest) {
         sent++;
       } catch (err: unknown) {
         if ((err as { statusCode?: number }).statusCode === 410) {
-          await supabase.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
+          await sql`DELETE FROM push_subscriptions WHERE endpoint = ${sub.endpoint}`;
         }
       }
     })

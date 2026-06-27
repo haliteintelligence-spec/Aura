@@ -1,28 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai, MODEL } from "@/lib/openai";
-import { createClient } from "@/lib/supabase/server";
+import { sql } from "@/lib/db";
 import { getBrandDomain, searchBrandSite } from "@/lib/brand-scraper";
 
 async function enrichFromDB(name: string, brand: string) {
   try {
-    const supabase = await createClient();
-    const { data } = await supabase
-      .from("perfumes")
-      .select("name,brand,year,description,top_notes,heart_notes,base_notes,fragrance_family,gender,image_url,prices")
-      .ilike("brand", brand.trim())
-      .ilike("name", `%${name.trim()}%`)
-      .limit(1)
-      .single();
-    if (data) return data;
-
-    const { data: loose } = await supabase
-      .from("perfumes")
-      .select("name,brand,year,description,top_notes,heart_notes,base_notes,fragrance_family,gender,image_url,prices")
-      .ilike("name", `%${name.trim()}%`)
-      .ilike("brand", `%${brand.trim().split(" ")[0]}%`)
-      .limit(1)
-      .single();
-    return loose ?? null;
+    const rows = await sql`
+      SELECT name,brand,year,description,top_notes,heart_notes,base_notes,fragrance_family,gender,image_url,prices
+      FROM perfumes
+      WHERE brand ILIKE ${brand.trim()} AND name ILIKE ${"%" + name.trim() + "%"}
+      LIMIT 1`;
+    if (rows[0]) return rows[0];
+    const loose = await sql`
+      SELECT name,brand,year,description,top_notes,heart_notes,base_notes,fragrance_family,gender,image_url,prices
+      FROM perfumes
+      WHERE name ILIKE ${"%" + name.trim() + "%"} AND brand ILIKE ${"%" + brand.trim().split(" ")[0] + "%"}
+      LIMIT 1`;
+    return loose[0] ?? null;
   } catch {
     return null;
   }
@@ -143,7 +137,6 @@ If you cannot identify the perfume, return your best guesses based on bottle sty
   const hasLowConfidence = enriched.every((c) => ((c as Record<string, unknown>).confidence as number ?? 0) < 0.7 || (c as Record<string, unknown>).source !== "database");
   if (hasLowConfidence && enriched.length > 0) {
     try {
-      const supabase = await createClient();
       const topCandidate = enriched[0];
       const nameTokens = String(topCandidate.name ?? "").split(/\s+/).filter((w) => w.length > 2);
       const brand = String(topCandidate.brand ?? "");
@@ -151,13 +144,12 @@ If you cannot identify the perfume, return your best guesses based on bottle sty
 
       const dbSimilar: Array<Record<string, unknown>> = [];
       for (const token of nameTokens.slice(0, 2)) {
-        const { data } = await supabase
-          .from("perfumes")
-          .select("name,brand,year,description,top_notes,heart_notes,base_notes,fragrance_family,gender,image_url")
-          .ilike("brand", `%${brand.split(" ")[0]}%`)
-          .ilike("name", `%${token}%`)
-          .limit(3);
-        for (const row of data ?? []) {
+        const rows = await sql`
+          SELECT name,brand,year,description,top_notes,heart_notes,base_notes,fragrance_family,gender,image_url
+          FROM perfumes
+          WHERE brand ILIKE ${"%" + brand.split(" ")[0] + "%"} AND name ILIKE ${"%" + token + "%"}
+          LIMIT 3`;
+        for (const row of rows) {
           const key = `${row.brand}||${row.name}`.toLowerCase();
           if (!seenNames.has(key)) {
             seenNames.add(key);

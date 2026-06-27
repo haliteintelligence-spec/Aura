@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "**.fragrantica.com" },
@@ -16,7 +17,6 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "**.google.com" },
       { protocol: "https", hostname: "**.googleusercontent.com" },
       { protocol: "https", hostname: "fimgs.net" },
-      { protocol: "https", hostname: "**.supabase.co" },
     ],
   },
 };

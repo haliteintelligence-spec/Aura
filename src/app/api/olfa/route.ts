@@ -1,48 +1,28 @@
 import { NextRequest } from "next/server";
 import { openai, MODEL } from "@/lib/openai";
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@/auth";
+import { sql } from "@/lib/db";
 
-async function buildUserContext(userId: string, supabase: Awaited<ReturnType<typeof createClient>>): Promise<string> {
-  const [
-    { data: closet },
-    { data: wishlist },
-    { data: ownedBefore },
-    { data: recentLogs },
-    { data: combos },
-    { data: badges },
-  ] = await Promise.all([
-    supabase
-      .from("collection_items")
-      .select("*, perfume:perfumes(name, brand, fragrance_family, top_notes, heart_notes, base_notes, gender), user_perfume:user_perfumes(name, brand, fragrance_family, top_notes, heart_notes, base_notes, gender)")
-      .eq("user_id", userId)
-      .eq("collection_type", "closet")
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("collection_items")
-      .select("*, perfume:perfumes(name, brand, fragrance_family), user_perfume:user_perfumes(name, brand, fragrance_family)")
-      .eq("user_id", userId)
-      .eq("collection_type", "wishlist"),
-    supabase
-      .from("collection_items")
-      .select("*, perfume:perfumes(name, brand, fragrance_family), user_perfume:user_perfumes(name, brand, fragrance_family)")
-      .eq("user_id", userId)
-      .eq("collection_type", "owned_before"),
-    supabase
-      .from("scent_logs")
-      .select("*, items:collection_items(perfume:perfumes(name, brand), user_perfume:user_perfumes(name, brand))")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(20),
-    supabase
-      .from("layer_combos")
-      .select("name, combined_profile, occasion, season, mood")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(10),
-    supabase
-      .from("user_badges")
-      .select("badge:badges(name)")
-      .eq("user_id", userId),
+async function buildUserContext(userId: string): Promise<string> {
+  const [closet, wishlist, ownedBefore, recentLogs, combos, badges] = await Promise.all([
+    sql`SELECT ci.*, row_to_json(p.*) AS perfume, row_to_json(up.*) AS user_perfume
+        FROM collection_items ci
+        LEFT JOIN perfumes p ON p.id = ci.perfume_id
+        LEFT JOIN user_perfumes up ON up.id = ci.user_perfume_id
+        WHERE ci.user_id = ${userId} AND ci.collection_type = 'closet' ORDER BY ci.created_at DESC`,
+    sql`SELECT ci.*, row_to_json(p.*) AS perfume, row_to_json(up.*) AS user_perfume
+        FROM collection_items ci
+        LEFT JOIN perfumes p ON p.id = ci.perfume_id
+        LEFT JOIN user_perfumes up ON up.id = ci.user_perfume_id
+        WHERE ci.user_id = ${userId} AND ci.collection_type = 'wishlist'`,
+    sql`SELECT ci.*, row_to_json(p.*) AS perfume, row_to_json(up.*) AS user_perfume
+        FROM collection_items ci
+        LEFT JOIN perfumes p ON p.id = ci.perfume_id
+        LEFT JOIN user_perfumes up ON up.id = ci.user_perfume_id
+        WHERE ci.user_id = ${userId} AND ci.collection_type = 'owned_before'`,
+    sql`SELECT * FROM scent_logs WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 20`,
+    sql`SELECT name, combined_profile, occasion, season, mood FROM layer_combos WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 10`,
+    sql`SELECT b.name FROM user_badges ub JOIN badges b ON b.id = ub.badge_id WHERE ub.user_id = ${userId}`,
   ]);
 
   const lines: string[] = ["## User's Hallie Collection Data\n"];
@@ -85,11 +65,7 @@ async function buildUserContext(userId: string, supabase: Awaited<ReturnType<typ
   if (recentLogs && recentLogs.length > 0) {
     lines.push(`### Recent Scent Logs (last ${recentLogs.length})`);
     for (const log of recentLogs.slice(0, 10)) {
-      const perfumeNames = (log.items as { perfume: { name: string; brand: string } | null; user_perfume: { name: string; brand: string } | null }[] | null)
-        ?.map((i) => { const p = i.perfume ?? i.user_perfume; return p ? `${p.brand} ${p.name}` : null; })
-        .filter(Boolean)
-        .join(", ") ?? "unknown";
-      lines.push(`- ${log.date}: wore ${perfumeNames} | occasion: ${log.event_type ?? "?"}, mood: ${Array.isArray(log.mood) ? log.mood.join(", ") : (log.mood ?? "?")}, rating: ${log.rating ?? "?"}/10`);
+      lines.push(`- ${log.date}: occasion: ${log.event_type ?? "?"}, mood: ${Array.isArray(log.mood) ? log.mood.join(", ") : (log.mood ?? "?")}, rating: ${log.rating ?? "?"}/10`);
     }
     lines.push("");
   }
@@ -103,7 +79,7 @@ async function buildUserContext(userId: string, supabase: Awaited<ReturnType<typ
   }
 
   if (badges && badges.length > 0) {
-    const badgeNames = badges.map((b) => (b.badge as unknown as { name: string } | null)?.name).filter(Boolean);
+    const badgeNames = badges.map((b) => b.name).filter(Boolean);
     lines.push(`### Achievements Earned\n${badgeNames.join(", ")}\n`);
   }
 
@@ -113,8 +89,7 @@ async function buildUserContext(userId: string, supabase: Awaited<ReturnType<typ
 export async function POST(request: NextRequest) {
   const { messages } = await request.json();
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const session = await auth();
 
   let systemPrompt = `You are Hal, an elegant and knowledgeable perfume AI assistant for the Hallie app.
 You have deep expertise in fragrances, perfumery, and olfactory science.
@@ -122,8 +97,8 @@ You help users with their personal fragrance collection, recommend perfumes, exp
 and answer any fragrance-related questions with warmth and passion.
 Keep responses concise but insightful. Use sensory language that evokes the perfumes.`;
 
-  if (user) {
-    const context = await buildUserContext(user.id, supabase);
+  if (session?.user?.id) {
+    const context = await buildUserContext(session.user.id);
     systemPrompt += `\n\nYou have access to this user's personal fragrance data. Use it to give personalised, specific answers. When they ask about their collection, logs, wishlist, or combos, refer to the actual data below.\n\n${context}`;
   }
 

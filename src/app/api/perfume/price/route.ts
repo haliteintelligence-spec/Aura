@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { sql } from "@/lib/db";
 import { openai, MODEL_MINI } from "@/lib/openai";
 import { BOTTLE_SIZES } from "@/lib/utils";
 
@@ -345,10 +345,10 @@ export async function POST(request: NextRequest) {
 
   // 0. DB lookup — find closest stored size price before scraping
   try {
-    const supabase = await createClient();
-    const { data: dbData } = perfumeId
-      ? await supabase.from("perfumes").select("prices").eq("id", perfumeId).maybeSingle()
-      : await supabase.from("perfumes").select("prices").ilike("name", name).ilike("brand", brand).maybeSingle();
+    const dbRows = perfumeId
+      ? await sql`SELECT prices FROM perfumes WHERE id = ${perfumeId} LIMIT 1`
+      : await sql`SELECT prices FROM perfumes WHERE name ILIKE ${name} AND brand ILIKE ${brand} LIMIT 1`;
+    const dbData = dbRows[0];
     if (dbData?.prices && Array.isArray(dbData.prices) && (dbData.prices as DbPrice[]).length > 0) {
       for (const size of [...remaining]) {
         const match = findClosestDbPrice(size, dbData.prices as DbPrice[]);

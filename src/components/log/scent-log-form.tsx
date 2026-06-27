@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { MultiSelect } from "@/components/ui/multi-select";
-import { createClient } from "@/lib/supabase/client";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { MOODS, OCCASIONS, DURATION_RANGES, BOTTLE_SIZES, fractionToLevel, levelToFraction, cn } from "@/lib/utils";
 import type { CollectionItem } from "@/lib/types";
@@ -63,11 +62,7 @@ export function ScentLogForm({ onSaved, initialItemIds = [], initialMood = [], i
   const [done, setDone] = useState(false);
 
   useEffect(() => {
-    const supabase = createClient();
-    supabase
-      .from("collection_items")
-      .select("*, perfume:perfumes(*), user_perfume:user_perfumes(*)")
-      .eq("collection_type", "closet")
+    fetch("/api/collection?type=closet").then((r) => r.json())
       .then(({ data }) => setClosetItems((data as CollectionItem[]) ?? []));
   }, []);
 
@@ -82,8 +77,7 @@ export function ScentLogForm({ onSaved, initialItemIds = [], initialMood = [], i
     });
   }, [selectedIds]);
 
-  async function updateLevelsAndNotify(userId: string) {
-    const supabase = createClient();
+  async function updateLevelsAndNotify() {
     const emptied: string[] = [];
 
     for (const id of selectedIds) {
@@ -91,20 +85,21 @@ export function ScentLogForm({ onSaved, initialItemIds = [], initialMood = [], i
       if (!item) continue;
 
       const totalMl = largestBottleMl(item.bottle_sizes ?? []);
-      if (totalMl === 0) continue; // unknown size, skip
+      if (totalMl === 0) continue;
 
       const intensity = SPRAY_INTENSITIES.find((s) => s.value === sprayIntensities[id]);
-      if (!intensity) continue; // user didn't select — skip
+      if (!intensity) continue;
 
       const usedMl = intensity.sprays * ML_PER_SPRAY;
       const currentFraction = levelToFraction(item.estimated_level ?? "full");
       const newFraction = Math.max(0, currentFraction - usedMl / totalMl);
       const newLevel = fractionToLevel(newFraction);
 
-      await supabase
-        .from("collection_items")
-        .update({ estimated_level: newLevel })
-        .eq("id", id);
+      await fetch(`/api/collection/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ estimated_level: newLevel }),
+      });
 
       if (newLevel === "empty") {
         const perfumeName = (item.perfume ?? item.user_perfume)?.name ?? "A perfume";
@@ -114,7 +109,6 @@ export function ScentLogForm({ onSaved, initialItemIds = [], initialMood = [], i
 
     if (emptied.length === 0) return;
 
-    // In-app toast prompt
     for (const name of emptied) {
       toast(`${name} is empty`, {
         description: "Move it to Owned Before?",
@@ -123,7 +117,6 @@ export function ScentLogForm({ onSaved, initialItemIds = [], initialMood = [], i
       });
     }
 
-    // Push notification
     try {
       await fetch("/api/push/notify", {
         method: "POST",
@@ -137,37 +130,34 @@ export function ScentLogForm({ onSaved, initialItemIds = [], initialMood = [], i
         }),
       });
     } catch { /* non-critical */ }
-
-    void userId; // used via supabase auth above
   }
 
   async function save() {
     if (selectedIds.length === 0) { toast.error("Select at least one fragrance"); return; }
     setSaving(true);
     try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { toast.error("Please sign in"); return; }
-
-      const { error } = await supabase.from("scent_logs").insert({
-        user_id: user.id,
-        collection_item_ids: selectedIds,
-        date: format(new Date(), "yyyy-MM-dd"),
-        mood,
-        event_type: eventTypes[0] ?? "",
-        event_types: eventTypes,
-        rating,
-        duration,
-        notes: notes || null,
-        got_compliment: gotCompliment,
+      const res = await fetch("/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          collection_item_ids: selectedIds,
+          date: format(new Date(), "yyyy-MM-dd"),
+          mood,
+          event_type: eventTypes[0] ?? "",
+          event_types: eventTypes,
+          rating,
+          duration,
+          notes: notes || null,
+          got_compliment: gotCompliment,
+          spray_intensities: sprayIntensities,
+        }),
       });
-
-      if (error) throw error;
+      if (!res.ok) throw new Error("Failed to save");
       toast.success(gotCompliment ? "Scent logged — compliment recorded!" : "Scent logged!");
-      checkAndAwardBadges(user.id);
+      checkAndAwardBadges("");
 
       // Update bottle levels (non-blocking)
-      updateLevelsAndNotify(user.id);
+      updateLevelsAndNotify();
 
       setDone(true);
       onSaved?.();

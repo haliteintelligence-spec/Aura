@@ -11,7 +11,6 @@ import { cn, BOTTLE_SIZES, SEASONS, OCCASIONS, PRODUCT_LEVELS, COLLECTION_TYPES,
 import type { PerfumeSearchResult } from "@/lib/types";
 import { CheckCircle2, ChevronLeft, ChevronRight, Loader2, RefreshCw, Droplets, Search } from "lucide-react";
 import Image from "next/image";
-import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { useRouter } from "next/navigation";
@@ -304,61 +303,28 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
     if (!selected) return;
     setSaving(true);
     try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { toast.error("Please sign in to save to your collection"); return; }
+      // Use external image URL directly (no cloud storage in Railway setup)
+      const imageUrl = selected.image_url ?? null;
 
-      // Upload user photo if present
-      let imageUrl = selected.image_url ?? null;
-      if (userPhotoFile) {
-        const mimeType = userPhotoFile.type || "image/jpeg";
-        const ext = mimeType.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
-        const path = `${user.id}/${Date.now()}.${ext}`;
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from("perfume-photos")
-          .upload(path, userPhotoFile, { contentType: mimeType, upsert: true });
-        if (uploadError) {
-          toast.error(`Photo upload failed: ${uploadError.message}`);
-        } else if (uploadData) {
-          const { data: { publicUrl } } = supabase.storage.from("perfume-photos").getPublicUrl(uploadData.path);
-          imageUrl = publicUrl;
-        }
-      } else if (imageUrl && !imageUrl.includes(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "supabase.co")) {
-        // Cache external image (e.g. Fragrantica CDN) permanently in Supabase Storage
-        try {
-          const proxyRes = await fetch(`/api/image-proxy?url=${encodeURIComponent(imageUrl)}`);
-          if (proxyRes.ok) {
-            const blob = await proxyRes.blob();
-            const ext = blob.type.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
-            const slug = `${selected.brand}_${selected.name}`.replace(/[^a-z0-9]/gi, "_").toLowerCase().slice(0, 80);
-            const path = `product/${slug}.${ext}`;
-            const { data: uploadData, error: uploadError } = await supabase.storage
-              .from("perfume-images")
-              .upload(path, blob, { contentType: blob.type, upsert: true });
-            if (!uploadError && uploadData) {
-              const { data: { publicUrl } } = supabase.storage.from("perfume-images").getPublicUrl(uploadData.path);
-              imageUrl = publicUrl;
-            }
-          }
-        } catch { /* non-critical — fall back to original external URL */ }
-      }
+      // Look up perfume in the public catalog via API
+      const lookupRes = await fetch(`/api/perfume/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: selected.name, brand: selected.brand }),
+      });
+      const lookupData = await lookupRes.json();
+      const publicPerfumeId = (lookupData.results as Array<{ id?: string; name: string; brand: string }>)?.find(
+        (r) => r.id && r.name === selected.name && r.brand === selected.brand
+      )?.id ?? null;
 
-      // Look up perfume in the public catalog first; if not found, save to user_perfumes
-      const { data: publicPerfume } = await supabase
-        .from("perfumes")
-        .select("id")
-        .eq("name", selected.name)
-        .eq("brand", selected.brand)
-        .maybeSingle();
-
-      let perfumeId: string | null = publicPerfume?.id ?? null;
+      let perfumeId: string | null = publicPerfumeId;
       let userPerfumeId: string | null = null;
 
       if (!perfumeId) {
-        const { data: up, error: upErr } = await supabase
-          .from("user_perfumes")
-          .upsert({
-            user_id: user.id,
+        const upRes = await fetch("/api/user-perfumes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
             name: selected.name,
             brand: selected.brand,
             year: selected.year ?? null,
@@ -369,52 +335,41 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
             fragrance_family: selected.fragrance_family || [],
             gender: selected.gender ?? null,
             image_url: imageUrl,
-          }, { onConflict: "user_id,name,brand" })
-          .select("id")
-          .single();
-        if (upErr) throw upErr;
-        userPerfumeId = up.id;
-      }
-
-      // Duplicate check — block if already in any collection
-      const dupQuery = supabase
-        .from("collection_items")
-        .select("collection_type")
-        .eq("user_id", user.id);
-      const { data: existing } = await (perfumeId
-        ? dupQuery.eq("perfume_id", perfumeId)
-        : dupQuery.eq("user_perfume_id", userPerfumeId!));
-      if (existing && existing.length > 0) {
-        const inCollection = COLLECTION_TYPES.find((c) => c.value === existing[0].collection_type)?.label ?? existing[0].collection_type;
-        toast.error(`Already in your ${inCollection}`);
-        return;
+          }),
+        });
+        if (!upRes.ok) throw new Error("Failed to save user perfume");
+        const upData = await upRes.json();
+        userPerfumeId = upData.id;
       }
 
       const effectiveSizes = resolvedSizes(selectedSizes, customMl);
       const sizesPrices = effectiveSizes.map((s) => ({
-        size: s,
-        price_min: prices[s]?.min ?? null,
-        price_max: prices[s]?.max ?? null,
-        currency: "USD",
+        size: s, price_min: prices[s]?.min ?? null, price_max: prices[s]?.max ?? null, currency: "USD",
       }));
 
-      const { error: itemErr } = await supabase.from("collection_items").insert({
-        user_id: user.id,
-        ...(perfumeId ? { perfume_id: perfumeId } : { user_perfume_id: userPerfumeId }),
-        collection_type: collection,
-        bottle_sizes: effectiveSizes,
-        size_prices: sizesPrices,
-        occasions,
-        seasons,
-        rating: rating > 0 ? rating : null,
-        initial_level: level,
-        estimated_level: level,
+      const itemRes = await fetch("/api/collection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(perfumeId ? { perfume_id: perfumeId } : { user_perfume_id: userPerfumeId }),
+          collection_type: collection,
+          bottle_sizes: effectiveSizes,
+          size_prices: sizesPrices,
+          occasions,
+          seasons,
+          rating: rating > 0 ? rating : null,
+          initial_level: level,
+          estimated_level: level,
+        }),
       });
-
-      if (itemErr) throw itemErr;
+      if (!itemRes.ok) {
+        const err = await itemRes.json();
+        if (itemRes.status === 409) { toast.error(err.error ?? "Already in your collection"); return; }
+        throw new Error("Failed to add to collection");
+      }
 
       toast.success(`Added to your ${COLLECTION_TYPES.find((c) => c.value === collection)?.label}!`);
-      checkAndAwardBadges(user.id);
+      checkAndAwardBadges("");
       setStep("done");
       setTimeout(() => router.push(`/${collection === "owned_before" ? "owned-before" : collection}`), 1200);
     } catch (err) {

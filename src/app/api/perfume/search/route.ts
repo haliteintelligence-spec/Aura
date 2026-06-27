@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai, MODEL } from "@/lib/openai";
-import { createClient } from "@/lib/supabase/server";
+import { sql } from "@/lib/db";
 import { getBrandDomain, searchBrandSite } from "@/lib/brand-scraper";
 import type { PerfumeSearchResult } from "@/lib/types";
 
@@ -48,22 +48,23 @@ async function searchWithGPT(brand?: string, name?: string): Promise<{ brand: st
 
 async function searchDatabase(brand?: string, name?: string): Promise<PerfumeSearchResult[]> {
   try {
-    const supabase = await createClient();
-    let query = supabase
-      .from("perfumes")
-      .select("id,name,brand,year,description,top_notes,heart_notes,base_notes,fragrance_family,gender,image_url,prices")
-      .limit(40);
-
+    let rows: PerfumeSearchResult[];
     if (brand && name) {
-      query = query.ilike("brand", `%${brand}%`).ilike("name", `%${name}%`);
+      rows = await sql<PerfumeSearchResult[]>`
+        SELECT id,name,brand,year,description,top_notes,heart_notes,base_notes,fragrance_family,gender,image_url,prices
+        FROM perfumes WHERE brand ILIKE ${'%' + brand + '%'} AND name ILIKE ${'%' + name + '%'} LIMIT 40`;
     } else if (brand) {
-      query = query.ilike("brand", brand);
+      rows = await sql<PerfumeSearchResult[]>`
+        SELECT id,name,brand,year,description,top_notes,heart_notes,base_notes,fragrance_family,gender,image_url,prices
+        FROM perfumes WHERE brand ILIKE ${brand} LIMIT 40`;
     } else if (name) {
-      query = query.ilike("name", `%${name}%`);
+      rows = await sql<PerfumeSearchResult[]>`
+        SELECT id,name,brand,year,description,top_notes,heart_notes,base_notes,fragrance_family,gender,image_url,prices
+        FROM perfumes WHERE name ILIKE ${'%' + name + '%'} LIMIT 40`;
+    } else {
+      return [];
     }
-
-    const { data } = await query;
-    return (data ?? []) as PerfumeSearchResult[];
+    return rows;
   } catch {
     return [];
   }

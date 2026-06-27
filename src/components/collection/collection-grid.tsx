@@ -7,7 +7,6 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { createClient } from "@/lib/supabase/client";
 import { SEASONS, FRAGRANCE_FAMILIES } from "@/lib/utils";
 import type { CollectionItem, BottleSizePrice } from "@/lib/types";
 import { SlidersHorizontal, Plus, ArrowUpDown, Loader2 } from "lucide-react";
@@ -35,9 +34,6 @@ export function CollectionGrid({ collectionType, title }: CollectionGridProps) {
   const [sort, setSort] = useState<SortOption>("brand_asc");
 
   const backfillMissing = useCallback(async (loaded: CollectionItem[]) => {
-    const supabase = createClient();
-
-    // Backfill missing image / notes
     const toFill = loaded.filter((i) => {
       const p = i.perfume ?? i.user_perfume;
       return p && (!p.image_url || !p.top_notes?.length);
@@ -63,8 +59,12 @@ export function CollectionGrid({ collectionType, title }: CollectionGridProps) {
 
         if (Object.keys(updates).length === 0) continue;
 
-        const table = item.user_perfume ? "user_perfumes" : "perfumes";
-        await supabase.from(table).update(updates).eq("id", p.id);
+        const endpoint = item.user_perfume ? `/api/user-perfumes/${p.id}` : `/api/perfumes/${p.id}`;
+        await fetch(endpoint, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updates),
+        });
         setItems((prev) =>
           prev.map((i) => {
             if (item.user_perfume && i.user_perfume?.id === p.id)
@@ -77,7 +77,6 @@ export function CollectionGrid({ collectionType, title }: CollectionGridProps) {
       } catch { /* ignore per-item errors */ }
     }
 
-    // Backfill missing prices
     const toPriceFill = loaded.filter(
       (i) => (!i.size_prices || i.size_prices.length === 0) && (i.bottle_sizes?.length ?? 0) > 0
     );
@@ -88,23 +87,19 @@ export function CollectionGrid({ collectionType, title }: CollectionGridProps) {
         const res = await fetch("/api/perfume/price", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: p.name,
-            brand: p.brand,
-            sizes: item.bottle_sizes,
-            perfumeId: item.perfume?.id,
-          }),
+          body: JSON.stringify({ name: p.name, brand: p.brand, sizes: item.bottle_sizes, perfumeId: item.perfume?.id }),
         });
         if (!res.ok) continue;
         const data = await res.json();
         if (!data.prices?.length) continue;
         const sizePrices: BottleSizePrice[] = (data.prices as Array<{ size: string; price_min: number; price_max: number; currency: string }>).map((pr) => ({
-          size: pr.size,
-          price_min: pr.price_min,
-          price_max: pr.price_max,
-          currency: pr.currency ?? "USD",
+          size: pr.size, price_min: pr.price_min, price_max: pr.price_max, currency: pr.currency ?? "USD",
         }));
-        await supabase.from("collection_items").update({ size_prices: sizePrices }).eq("id", item.id);
+        await fetch(`/api/collection/${item.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ size_prices: sizePrices }),
+        });
         setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, size_prices: sizePrices } : i));
       } catch { /* ignore per-item errors */ }
     }
@@ -112,11 +107,8 @@ export function CollectionGrid({ collectionType, title }: CollectionGridProps) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const supabase = createClient();
-    const { data } = await supabase
-      .from("collection_items")
-      .select("*, perfume:perfumes(*), user_perfume:user_perfumes(*)")
-      .eq("collection_type", collectionType);
+    const res = await fetch(`/api/collection?type=${collectionType}`);
+    const { data } = await res.json();
     const loaded = (data as CollectionItem[]) ?? [];
     setItems(loaded);
     setLoading(false);

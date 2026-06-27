@@ -7,7 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { createClient } from "@/lib/supabase/client";
+import { signOut } from "next-auth/react";
 import { useUser } from "@/hooks/use-user";
 import { levelToFraction, formatPrice, COLLECTION_TYPES, FRAGRANCE_FAMILIES, proxyImageUrl } from "@/lib/utils";
 import type { CollectionItem, LayerCombo } from "@/lib/types";
@@ -19,12 +19,9 @@ import {
 import { usePush } from "@/components/push/push-provider";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
-
 export default function ProfilePage() {
   const { user, loading } = useUser();
   const { supported, subscribed, subscribing, subscribe, unsubscribe } = usePush();
-  const router = useRouter();
   const [displayName, setDisplayName] = useState("");
   const [editingName, setEditingName] = useState(false);
   const [savingName, setSavingName] = useState(false);
@@ -35,24 +32,25 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!user) return;
-    setDisplayName(user.user_metadata?.display_name ?? "");
-    const supabase = createClient();
+    setDisplayName(user.name ?? "");
     Promise.all([
-      supabase.from("collection_items").select("*, perfume:perfumes(*), user_perfume:user_perfumes(*)").eq("user_id", user.id),
-      supabase.from("layer_combos").select("*").eq("user_id", user.id).eq("saved", true).order("created_at", { ascending: false }),
-    ]).then(([{ data: itemData }, { data: comboData }]) => {
-      setItems((itemData as CollectionItem[]) ?? []);
-      setSavedCombos((comboData as LayerCombo[]) ?? []);
+      fetch("/api/collection").then((r) => r.json()),
+      fetch("/api/combos?saved=true").then((r) => r.json()),
+    ]).then(([itemRes, comboRes]) => {
+      setItems((itemRes.data as CollectionItem[]) ?? []);
+      setSavedCombos((comboRes.data as LayerCombo[]) ?? []);
       setDataLoading(false);
     });
   }, [user]);
 
   async function saveName() {
     setSavingName(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.updateUser({ data: { display_name: displayName } });
-    if (!error) {
-      await supabase.from("profiles").update({ display_name: displayName }).eq("id", user!.id);
+    const res = await fetch("/api/profile", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: displayName }),
+    });
+    if (res.ok) {
       toast.success("Name updated");
       setEditingName(false);
     } else {
@@ -61,10 +59,8 @@ export default function ProfilePage() {
     setSavingName(false);
   }
 
-  async function signOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/");
+  async function handleSignOut() {
+    await signOut({ callbackUrl: "/sign-in" });
   }
 
   if (loading) {
@@ -143,7 +139,7 @@ export default function ProfilePage() {
               <p className="text-xs text-muted-foreground truncate">{user.email}</p>
             </div>
           </div>
-          <Button variant="outline" size="sm" className="w-full gap-2 text-muted-foreground" onClick={signOut}>
+          <Button variant="outline" size="sm" className="w-full gap-2 text-muted-foreground" onClick={handleSignOut}>
             <LogOut className="w-3.5 h-3.5" /> Sign out
           </Button>
         </div>
