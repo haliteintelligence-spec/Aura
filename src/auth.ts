@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { sql } from "@/lib/db";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  trustHost: true,
   session: { strategy: "jwt" },
   pages: {
     signIn: "/sign-in",
