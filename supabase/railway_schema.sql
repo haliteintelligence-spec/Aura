@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS perfumes (
   gender           TEXT,
   image_url        TEXT,
   prices           JSONB DEFAULT '[]',
+  product_type     TEXT,
   created_at       TIMESTAMPTZ DEFAULT now(),
   UNIQUE(name, brand)
 );
@@ -170,10 +171,16 @@ CREATE TABLE IF NOT EXISTS beauty_products (
   brand            TEXT NOT NULL,
   category         TEXT,
   subcategory      TEXT,
+  description      TEXT,
+  key_ingredients  TEXT[] DEFAULT '{}',
+  scent_notes      TEXT[] DEFAULT '{}',
   fragrance_family TEXT[] DEFAULT '{}',
   notes            TEXT[] DEFAULT '{}',
   full_ingredients TEXT,
   image_url        TEXT,
+  prices           JSONB DEFAULT '[]',
+  tags             TEXT[] DEFAULT '{}',
+  source_url       TEXT,
   created_at       TIMESTAMPTZ DEFAULT now()
 );
 
