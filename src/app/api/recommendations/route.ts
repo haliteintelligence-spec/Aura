@@ -58,9 +58,9 @@ export async function POST() {
 
   // Check daily cache
   try {
-    const cached = await sql<{ recommendations: PerfumeRow[]; updated_at: string }[]>`
-      SELECT recommendations, updated_at FROM user_recommendations WHERE user_id = ${userId}`;
-    if (cached[0] && Date.now() - new Date(cached[0].updated_at).getTime() < CACHE_TTL_MS) {
+    const cached = await sql<{ recommendations: PerfumeRow[]; cached_at: string }[]>`
+      SELECT recommendations, cached_at FROM user_recommendations WHERE user_id = ${userId}`;
+    if (cached[0] && Date.now() - new Date(cached[0].cached_at).getTime() < CACHE_TTL_MS) {
       const filtered = (cached[0].recommendations as PerfumeRow[]).filter((r) => !isExcluded(r));
       return NextResponse.json({ recommendations: filtered });
     }
@@ -88,7 +88,7 @@ export async function POST() {
       SELECT id, name, brand, top_notes, heart_notes, base_notes, fragrance_family, image_url, description
       FROM perfumes
       WHERE fragrance_family && ${topFamilies}
-        AND id != ALL(${[...excludedIds]}::uuid[])
+        AND id != ALL(${[...excludedIds]})
       LIMIT ${CANDIDATE_LIMIT}`;
   } else if (topFamilies.length > 0) {
     candidates = await sql<PerfumeRow[]>`
@@ -146,9 +146,9 @@ export async function POST() {
   // Cache
   try {
     await sql`
-      INSERT INTO user_recommendations (user_id, recommendations, updated_at)
-      VALUES (${userId}, ${JSON.stringify(recs)}, NOW())
-      ON CONFLICT (user_id) DO UPDATE SET recommendations = EXCLUDED.recommendations, updated_at = NOW()`;
+      INSERT INTO user_recommendations (user_id, recommendations, cached_at)
+      VALUES (${userId}, ${sql.json(recs)}, NOW())
+      ON CONFLICT (user_id) DO UPDATE SET recommendations = EXCLUDED.recommendations, cached_at = NOW()`;
   } catch { /* non-critical */ }
 
   return NextResponse.json({ recommendations: recs });
