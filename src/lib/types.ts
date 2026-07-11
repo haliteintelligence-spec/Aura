@@ -86,6 +86,7 @@ export interface ComplimentEntry {
   user_id: string;
   collection_item_ids: string[];
   perfume_names: string[];
+  compliment_count: number;
   date: string;
   created_at: string;
 }

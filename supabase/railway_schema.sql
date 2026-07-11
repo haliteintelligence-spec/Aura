@@ -160,6 +160,7 @@ CREATE TABLE IF NOT EXISTS compliment_entries (
   user_id             TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   collection_item_ids TEXT[] DEFAULT '{}',
   perfume_names       TEXT[] DEFAULT '{}',
+  compliment_count    INTEGER NOT NULL DEFAULT 1,
   date                DATE NOT NULL DEFAULT CURRENT_DATE,
   created_at          TIMESTAMPTZ DEFAULT now()
 );

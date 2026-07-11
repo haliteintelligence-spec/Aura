@@ -451,7 +451,7 @@ export function CollectionEntryWizard({ initialCollection = "closet" }: WizardPr
                   </p>
                 </div>
               )}
-              <div className="overflow-y-auto max-h-60">
+              <div className="overflow-y-auto overscroll-contain max-h-60">
                 {suggestions.map((s, i) => (
                   <button
                     key={i}

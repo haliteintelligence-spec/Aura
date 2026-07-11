@@ -7,7 +7,7 @@ import { PerfumeSelect } from "@/components/ui/perfume-select";
 import { useUser } from "@/hooks/use-user";
 import { cn, proxyImageUrl } from "@/lib/utils";
 import type { CollectionItem, ComplimentEntry } from "@/lib/types";
-import { MessageCircleHeart, Plus, Loader2, Droplets, Trash2, Pencil, BookOpen } from "lucide-react";
+import { MessageCircleHeart, Plus, Minus, Loader2, Droplets, Trash2, Pencil, BookOpen } from "lucide-react";
 import Image from "next/image";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
@@ -73,12 +73,12 @@ export default function ComplimentTrackerPage() {
 
       const countMap = new Map<string, ComplimentGroup>();
 
-      function upsertGroup(names: string[], itemIds: string[]) {
+      function upsertGroup(names: string[], itemIds: string[], weight = 1) {
         const sorted = [...names].sort((a, b) => a.localeCompare(b));
         const key = sorted.join(" + ");
         const existing = countMap.get(key);
         if (existing) {
-          existing.count += 1;
+          existing.count += weight;
         } else {
           const firstId = itemIds[0];
           const firstItem = firstId ? idToItem[firstId] : undefined;
@@ -87,7 +87,7 @@ export default function ComplimentTrackerPage() {
             names: sorted,
             imageUrl: (firstItem?.perfume ?? firstItem?.user_perfume)?.image_url ?? undefined,
             brand: (firstItem?.perfume ?? firstItem?.user_perfume)?.brand,
-            count: 1,
+            count: weight,
             isCombo: sorted.length > 1,
           });
         }
@@ -97,7 +97,7 @@ export default function ComplimentTrackerPage() {
         if (j.names.length > 0) upsertGroup(j.names, j.collection_item_ids);
       }
       for (const entry of rawManual) {
-        if (entry.perfume_names?.length > 0) upsertGroup(entry.perfume_names, entry.collection_item_ids);
+        if (entry.perfume_names?.length > 0) upsertGroup(entry.perfume_names, entry.collection_item_ids, entry.compliment_count ?? 1);
       }
 
       const sorted = [...countMap.values()].sort((a, b) => b.count - a.count);
@@ -173,6 +173,23 @@ export default function ComplimentTrackerPage() {
       toast.error("Failed to delete");
     } finally {
       setDeleting(null);
+    }
+  }
+
+  async function updateComplimentCount(id: string, nextCount: number) {
+    if (nextCount < 1) return;
+    setManualEntries((prev) => prev.map((e) => (e.id === id ? { ...e, compliment_count: nextCount } : e)));
+    try {
+      const res = await fetch(`/api/compliments/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ compliment_count: nextCount }),
+      });
+      if (!res.ok) throw new Error("Update failed");
+      await load();
+    } catch {
+      toast.error("Failed to update compliment count");
+      await load();
     }
   }
 
@@ -287,24 +304,45 @@ export default function ComplimentTrackerPage() {
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Manual entries</p>
                 {manualEntries.map((entry) => (
-                  <div key={entry.id} className="bg-card border border-border rounded-2xl p-3.5 flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium leading-tight truncate">{entry.perfume_names?.join(" + ") ?? "—"}</p>
-                      <p className="text-xs text-muted-foreground">{entry.date ? format(parseISO(entry.date), "MMM d, yyyy") : ""}</p>
+                  <div key={entry.id} className="bg-card border border-border rounded-2xl p-3.5 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium leading-snug break-words">{entry.perfume_names?.join(" + ") ?? "—"}</p>
+                        <p className="text-xs text-muted-foreground">{entry.date ? format(parseISO(entry.date), "MMM d, yyyy") : ""}</p>
+                      </div>
+                      <button
+                        onClick={() => openEdit(entry)}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => deleteManual(entry.id)}
+                        disabled={deleting === entry.id}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 shrink-0"
+                      >
+                        {deleting === entry.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      </button>
                     </div>
-                    <button
-                      onClick={() => openEdit(entry)}
-                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => deleteManual(entry.id)}
-                      disabled={deleting === entry.id}
-                      className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
-                    >
-                      {deleting === entry.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                    </button>
+                    <div className="flex items-center justify-between border-t border-border pt-3">
+                      <span className="text-xs text-muted-foreground">Compliments received</span>
+                      <div className="flex items-center gap-2.5">
+                        <button
+                          onClick={() => updateComplimentCount(entry.id, (entry.compliment_count ?? 1) - 1)}
+                          disabled={(entry.compliment_count ?? 1) <= 1}
+                          className="w-6 h-6 rounded-full border border-border flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors disabled:opacity-40"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="font-display text-base text-primary w-5 text-center">{entry.compliment_count ?? 1}</span>
+                        <button
+                          onClick={() => updateComplimentCount(entry.id, (entry.compliment_count ?? 1) + 1)}
+                          className="w-6 h-6 rounded-full border border-border flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>

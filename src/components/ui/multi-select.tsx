@@ -84,7 +84,7 @@ export function MultiSelect({
       </PopoverTrigger>
       <PopoverContent className="w-64 p-0" align="start">
         <div
-          className="overflow-y-auto p-2"
+          className="overflow-y-auto overscroll-contain p-2"
           style={{ maxHeight: `min(${maxHeight}, calc(var(--radix-popper-available-height, 400px) - 8px))` }}
         >
           <div className="space-y-1 pr-2">

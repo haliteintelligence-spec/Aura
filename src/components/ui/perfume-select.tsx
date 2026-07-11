@@ -73,7 +73,7 @@ export function PerfumeSelect({ items, value, onChange, placeholder = "Search fr
             className="h-8 text-sm pl-7"
           />
         </div>
-        <ScrollArea className="max-h-56">
+        <ScrollArea className="max-h-56 overscroll-contain">
           <div className="space-y-0.5 pr-2">
             {filtered.length === 0 ? (
               <p className="text-xs text-muted-foreground text-center py-4">No fragrances found</p>

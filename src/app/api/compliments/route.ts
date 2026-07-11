@@ -15,11 +15,11 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { collection_item_ids = [], perfume_names = [], date } = await req.json();
+  const { collection_item_ids = [], perfume_names = [], compliment_count = 1, date } = await req.json();
   const id = crypto.randomUUID();
   await sql`
-    INSERT INTO compliment_entries (id, user_id, collection_item_ids, perfume_names, date)
-    VALUES (${id}, ${session.user.id}, ${collection_item_ids}, ${perfume_names}, ${date ?? new Date().toISOString().slice(0, 10)})`;
+    INSERT INTO compliment_entries (id, user_id, collection_item_ids, perfume_names, compliment_count, date)
+    VALUES (${id}, ${session.user.id}, ${collection_item_ids}, ${perfume_names}, ${compliment_count}, ${date ?? new Date().toISOString().slice(0, 10)})`;
 
   return NextResponse.json({ id });
 }
