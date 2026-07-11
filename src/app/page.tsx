@@ -207,6 +207,9 @@ export default function HomePage() {
 
       toast.success(`Added to your ${COLLECTION_TYPES.find((c) => c.value === addCollection)?.label}!`);
       checkAndAwardBadges("");
+      setRecommendations((prev) =>
+        prev.filter((r) => !(r.name.toLowerCase() === selectedRec.name.toLowerCase() && r.brand.toLowerCase() === selectedRec.brand.toLowerCase()))
+      );
       setSelectedRec(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : JSON.stringify(err);
