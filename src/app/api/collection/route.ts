@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
        occasions, seasons, rating, notes, initial_level, estimated_level, available_for_swap)
     VALUES
       (${id}, ${session.user.id}, ${perfume_id ?? null}, ${user_perfume_id ?? null},
-       ${collection_type}, ${bottle_sizes}, ${JSON.stringify(size_prices)},
+       ${collection_type}, ${bottle_sizes}, ${sql.json(size_prices)},
        ${occasions}, ${seasons}, ${rating ?? null}, ${notes ?? null},
        ${initial_level}, ${estimated_level}, ${available_for_swap})`;
 

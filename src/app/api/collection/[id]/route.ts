@@ -20,7 +20,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   if (updates.length === 0) return NextResponse.json({ ok: true });
 
   for (const [col, val] of updates) {
-    const v = col === "size_prices" ? JSON.stringify(val) : val;
+    const v = col === "size_prices" ? sql.json(val as any) : val;
     await sql`UPDATE collection_items SET ${sql(col)} = ${v as string}, updated_at = NOW()
               WHERE id = ${id} AND user_id = ${session.user.id}`;
   }
